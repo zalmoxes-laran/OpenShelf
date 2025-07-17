@@ -375,13 +375,11 @@ Enable in `Preferences → OpenShelf → Advanced → Debug Mode`:
 
 ## 📞 Contact
 
-- **Author**: Your Name
-- **Email**: your.email@example.com
-- **Website**: https://your-website.com
-- **Repository**: https://github.com/yourusername/openshelf
+- **Author**: Emanuel DemetrESCu
+- **Email**: emanuel.demetrescu@cnr.it
+- **Website**: https://extendedmatrix.org
+- **Repository**: https://github.com/zalmoxes-laran/openshelf
 
 ---
 
-*Developed with ❤️ for the cultural heritage community*
-
-**Made possible by open data initiatives and cultural institutions worldwide**
+*Developed with ❤️ for the cultural heritage and extended matrix community*
