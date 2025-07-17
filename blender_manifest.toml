@@ -1,0 +1,49 @@
+schema_version = "1.0.0"
+
+# OpenShelf - Blender Extension for Cultural Heritage Assets
+id = "openshelf"
+version = "1.0.0"
+name = "OpenShelf"
+tagline = "Browse and import cultural heritage 3D assets from repositories"
+maintainer = "Emanuel Demetrescu <emanuel.demetrescu@cnr.it>"
+
+# Supported types: "add-on", "theme"
+type = "add-on"
+
+# Optional: link to documentation, support, source files, etc
+website = "https://github.com/zalmoxes-laran/openshelf"
+
+# Optional: tag list defined by Blender and server
+tags = ["Import-Export", "3D View", "Archaeology", "Cultural Heritage", "Museum"]
+
+blender_version_min = "4.2.0"
+
+# License conforming to https://spdx.org/licenses/
+license = [
+    "SPDX:GPL-3.0-or-later",
+]
+
+# Optional: required by some licenses
+copyright = [
+    "2025 Emanuel Demetrescu",
+]
+
+# Optional: list of supported platforms
+platforms = ["windows-x64", "macos-arm64", "linux-x64", "windows-arm64", "macos-x64"]
+
+# Optional: add-ons can list which resources they will require
+[permissions]
+network = "Download 3D models and metadata from cultural heritage repositories"
+files = "Import downloaded 3D models and cache repository data"
+
+# Optional: advanced build settings
+[build]
+paths_exclude_pattern = [
+    "__pycache__/",
+    "/.git/",
+    "/*.zip",
+    "/.gitignore",
+    "/README.md",
+    "/docs/",
+    "/.vscode/",
+]

@@ -1,0 +1,257 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2025-07-17",
+  "repositories": {
+    "ercolano": {
+      "name": "Ercolano",
+      "description": "Museo Archeologico Virtuale di Ercolano",
+      "type": "archaeological",
+      "country": "Italy",
+      "language": "it",
+      "base_url": "https://mude.cultura.gov.it",
+      "api_url": "https://mude.cultura.gov.it/searchInv/iv/json/lista",
+      "full_api_url": "https://mude.cultura.gov.it/searchInv/iv/json/lista?from=0&to=2125&ordering=nrInventario&orderingType=ASC&idNormativa=SIPA1",
+      "supported_formats": ["obj"],
+      "has_thumbnails": false,
+      "has_textures": true,
+      "default_license": "Unknown (Public Institution)",
+      "institution": "Parco Archeologico di Ercolano",
+      "contact_email": "",
+      "documentation_url": "",
+      "total_assets_approx": 2124,
+      "update_frequency": "static",
+      "data_quality": "high",
+      "api_version": "1.0",
+      "requires_auth": false,
+      "rate_limit": null,
+      "cache_duration_hours": 24,
+      "metadata_mapping": {
+        "id": "id",
+        "name": ["nrInventario", "oggetto"],
+        "description": "descrizione",
+        "object_type": "oggetto",
+        "materials": "materiaTecnicas",
+        "chronology": "cronologias",
+        "inventory_number": "nrInventario",
+        "provenance": "provenienza",
+        "inventory_name": "nomeInventario",
+        "model_urls": "modelli3D_hr",
+        "detail_url": "linkDettaglio",
+        "catalog_url": "linkICCD"
+      },
+      "search_capabilities": {
+        "full_text": false,
+        "field_specific": true,
+        "faceted": false,
+        "advanced": false
+      },
+      "quality_indicators": {
+        "completeness_weight": 0.3,
+        "description_weight": 0.2,
+        "materials_weight": 0.2,
+        "chronology_weight": 0.15,
+        "model_availability_weight": 0.15
+      }
+    },
+    "pompei": {
+      "name": "Pompei",
+      "description": "Parco Archeologico di Pompei (Future)",
+      "type": "archaeological",
+      "country": "Italy",
+      "language": "it",
+      "base_url": "https://pompeiisites.org",
+      "api_url": "",
+      "supported_formats": ["obj", "gltf"],
+      "has_thumbnails": true,
+      "has_textures": true,
+      "default_license": "CC-BY-SA",
+      "institution": "Parco Archeologico di Pompei",
+      "total_assets_approx": 0,
+      "status": "planned",
+      "notes": "Future integration planned"
+    },
+    "europeana": {
+      "name": "Europeana",
+      "description": "Europeana Cultural Heritage Platform (Future)",
+      "type": "cultural_heritage",
+      "country": "Europe",
+      "language": "en",
+      "base_url": "https://www.europeana.eu",
+      "api_url": "https://api.europeana.eu",
+      "supported_formats": ["obj", "gltf", "ply"],
+      "has_thumbnails": true,
+      "has_textures": true,
+      "default_license": "Various",
+      "institution": "Europeana Foundation",
+      "total_assets_approx": 1000000,
+      "status": "planned",
+      "notes": "Future integration planned - very large dataset"
+    },
+    "smithsonian": {
+      "name": "Smithsonian",
+      "description": "Smithsonian Institution 3D Collection (Future)",
+      "type": "museum",
+      "country": "USA",
+      "language": "en",
+      "base_url": "https://3d.si.edu",
+      "api_url": "",
+      "supported_formats": ["obj", "gltf", "usdz"],
+      "has_thumbnails": true,
+      "has_textures": true,
+      "default_license": "CC0",
+      "institution": "Smithsonian Institution",
+      "total_assets_approx": 500,
+      "status": "planned",
+      "notes": "Future integration planned"
+    }
+  },
+  "categories": {
+    "archaeological": {
+      "name": "Archaeological",
+      "description": "Archaeological sites and artifacts",
+      "icon": "COMMUNITY",
+      "color": "#8B4513"
+    },
+    "museum": {
+      "name": "Museum",
+      "description": "Museum collections",
+      "icon": "HOME",
+      "color": "#4169E1"
+    },
+    "cultural_heritage": {
+      "name": "Cultural Heritage",
+      "description": "General cultural heritage collections",
+      "icon": "BOOKMARKS",
+      "color": "#DAA520"
+    }
+  },
+  "object_types": {
+    "common_types": [
+      "anello",
+      "vaso",
+      "coppa",
+      "lucerna",
+      "moneta",
+      "statua",
+      "rilievo",
+      "affresco",
+      "mosaico",
+      "fibula",
+      "gemma",
+      "sigillo"
+    ],
+    "material_types": [
+      "oro",
+      "argento",
+      "bronzo",
+      "ferro",
+      "argilla",
+      "marmo",
+      "pietra",
+      "vetro",
+      "osso",
+      "avorio"
+    ],
+    "chronological_periods": [
+      "sec. I a.C.",
+      "sec. I d.C.",
+      "sec. II d.C.",
+      "sec. III d.C.",
+      "età repubblicana",
+      "età imperiale",
+      "età ellenistica",
+      "età arcaica"
+    ]
+  },
+  "search_presets": {
+    "popular_searches": [
+      {
+        "name": "Roman Rings",
+        "query": "anello",
+        "filters": {
+          "object_type": "anello",
+          "chronology": "romano"
+        }
+      },
+      {
+        "name": "Gold Objects",
+        "query": "oro",
+        "filters": {
+          "material": "oro"
+        }
+      },
+      {
+        "name": "1st Century AD",
+        "query": "",
+        "filters": {
+          "chronology": "sec. I d.C."
+        }
+      },
+      {
+        "name": "Pottery & Ceramics",
+        "query": "vaso",
+        "filters": {
+          "object_type": "vaso",
+          "material": "argilla"
+        }
+      },
+      {
+        "name": "Coins & Currency",
+        "query": "moneta",
+        "filters": {
+          "object_type": "moneta"
+        }
+      }
+    ],
+    "example_searches": [
+      "anello oro romano",
+      "vaso argilla",
+      "moneta imperiale",
+      "statua marmo",
+      "lucerna bronzo",
+      "affresco pompeiano"
+    ]
+  },
+  "ui_settings": {
+    "default_results_per_page": 50,
+    "max_results_per_page": 500,
+    "thumbnail_size": "medium",
+    "show_quality_scores": true,
+    "show_repository_badges": true,
+    "compact_mode": false
+  },
+  "technical_settings": {
+    "max_concurrent_downloads": 3,
+    "download_timeout_seconds": 30,
+    "cache_expiry_hours": 24,
+    "retry_attempts": 3,
+    "supported_3d_formats": [
+      "obj",
+      "gltf",
+      "glb",
+      "ply",
+      "usdz"
+    ],
+    "supported_texture_formats": [
+      "jpg",
+      "jpeg",
+      "png",
+      "tga",
+      "bmp",
+      "tiff"
+    ],
+    "max_file_size_mb": 100,
+    "validate_downloads": true
+  },
+  "quality_thresholds": {
+    "excellent": 90,
+    "good": 70,
+    "fair": 50,
+    "poor": 30
+  },
+  "localization": {
+    "supported_languages": ["en", "it"],
+    "default_language": "en",
+    "fallback_language": "en"
+  }
+}
