@@ -1,0 +1,99 @@
+{
+    "python.defaultInterpreterPath": "blender",
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": false,
+    "python.linting.flake8Enabled": true,
+    "python.linting.flake8Args": [
+        "--max-line-length=120",
+        "--ignore=E501,W503,E203"
+    ],
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": [
+        "--line-length=120"
+    ],
+    "files.associations": {
+        "*.toml": "toml",
+        "blender_manifest.toml": "toml"
+    },
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/*.pyc": true,
+        "**/.pytest_cache": true,
+        "**/test_downloads": true,
+        "**/cache": true
+    },
+    "search.exclude": {
+        "**/__pycache__": true,
+        "**/*.pyc": true,
+        "**/test_downloads": true,
+        "**/cache": true
+    },
+    "blender-development.executable": "blender",
+    "blender-development.reloadOnSave": true,
+    "blender-development.addonPath": "${workspaceFolder}",
+    "editor.rulers": [120],
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.detectIndentation": false,
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "files.trimFinalNewlines": true,
+    "workbench.colorCustomizations": {
+        "titleBar.activeBackground": "#2D5A87",
+        "titleBar.activeForeground": "#FFFFFF",
+        "titleBar.inactiveBackground": "#1E3A5F",
+        "titleBar.inactiveForeground": "#CCCCCC"
+    },
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}",
+        "${workspaceFolder}/utils",
+        "${workspaceFolder}/repositories",
+        "${workspaceFolder}/operators",
+        "${workspaceFolder}/ui",
+        "${workspaceFolder}/properties"
+    ],
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.autoSearchPaths": true,
+    "python.analysis.diagnosticMode": "workspace",
+    "json.schemas": [
+        {
+            "fileMatch": [
+                "blender_manifest.toml"
+            ],
+            "url": "https://raw.githubusercontent.com/blender/blender-addons/main/blender_manifest_schema.json"
+        }
+    ],
+    "todo-tree.general.tags": [
+        "TODO",
+        "FIXME",
+        "HACK",
+        "NOTE",
+        "BUG"
+    ],
+    "todo-tree.highlights.defaultHighlight": {
+        "icon": "alert",
+        "type": "text"
+    },
+    "todo-tree.highlights.customHighlight": {
+        "TODO": {
+            "icon": "check",
+            "foreground": "#FFD700"
+        },
+        "FIXME": {
+            "icon": "bug",
+            "foreground": "#FF6B6B"
+        },
+        "NOTE": {
+            "icon": "note",
+            "foreground": "#4ECDC4"
+        }
+    },
+    "extensions.recommendations": [
+        "JacquesLucke.blender-development",
+        "ms-python.python",
+        "ms-python.black-formatter",
+        "ms-python.flake8",
+        "Gruntfuggly.todo-tree",
+        "ms-vscode.vscode-json"
+    ]
+}

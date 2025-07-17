@@ -9,8 +9,8 @@
       "country": "Italy",
       "language": "it",
       "base_url": "https://mude.cultura.gov.it",
-      "api_url": "https://mude.cultura.gov.it/searchInv/iv/json/lista",
-      "full_api_url": "https://mude.cultura.gov.it/searchInv/iv/json/lista?from=0&to=2125&ordering=nrInventario&orderingType=ASC&idNormativa=SIPA1",
+      "api_url": "https://opendata-ercolano.cultura.gov.it/dataset/55608c19-2406-419f-84db-fa3d0b9cd033/resource/64324e26-a659-4c96-8958-98dbc5ecd3a9/download/modelli_3d_hig_res.json",
+      "full_api_url": "https://opendata-ercolano.cultura.gov.it/dataset/55608c19-2406-419f-84db-fa3d0b9cd033/resource/64324e26-a659-4c96-8958-98dbc5ecd3a9/download/modelli_3d_hig_res.json",
       "supported_formats": ["obj"],
       "has_thumbnails": false,
       "has_textures": true,
@@ -52,23 +52,6 @@
         "chronology_weight": 0.15,
         "model_availability_weight": 0.15
       }
-    },
-    "pompei": {
-      "name": "Pompei",
-      "description": "Parco Archeologico di Pompei (Future)",
-      "type": "archaeological",
-      "country": "Italy",
-      "language": "it",
-      "base_url": "https://pompeiisites.org",
-      "api_url": "",
-      "supported_formats": ["obj", "gltf"],
-      "has_thumbnails": true,
-      "has_textures": true,
-      "default_license": "CC-BY-SA",
-      "institution": "Parco Archeologico di Pompei",
-      "total_assets_approx": 0,
-      "status": "planned",
-      "notes": "Future integration planned"
     },
     "europeana": {
       "name": "Europeana",

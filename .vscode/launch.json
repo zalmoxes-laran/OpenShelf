@@ -1,0 +1,52 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug OpenShelf in Blender",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/__init__.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONDONTWRITEBYTECODE": "1"
+            },
+            "blender": {
+                "executable": "blender",
+                "args": [
+                    "--python-console",
+                    "--debug-python",
+                    "--factory-startup"
+                ]
+            }
+        },
+        {
+            "name": "Launch Blender with OpenShelf",
+            "type": "blender",
+            "request": "launch",
+            "blender": {
+                "executable": "${command:blender-development.getBlenderExecutable}",
+                "args": [
+                    "--python-console"
+                ]
+            },
+            "addon": {
+                "path": "${workspaceFolder}",
+                "reload": true
+            }
+        },
+        {
+            "name": "Test OpenShelf Repository Connection",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_repository.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--repository",
+                "ercolano",
+                "--limit", 
+                "10"
+            ]
+        }
+    ]
+}

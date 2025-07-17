@@ -1,312 +1,207 @@
 #!/usr/bin/env python3
 """
-OpenShelf Repository Test Script
-Test repository connections without Blender
-
-Usage:
-    python test_repository.py --repository ercolano --limit 10
-    python test_repository.py --all
+Test script for the new Ercolano URL
 """
 
-import sys
-import argparse
 import json
-import time
+import urllib.request
+import ssl
+import sys
 from pathlib import Path
 
-# Aggiungi il path del progetto
-project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
+def test_new_ercolano_url():
+    """Test the new Ercolano dataset URL"""
 
-try:
-    # Import delle classi repository
-    from repositories.base_repository import CulturalAsset
-    from repositories.ercolano_repository import ErcolanoRepository
-    from repositories.registry import RepositoryRegistry
-except ImportError as e:
-    print(f"Error importing OpenShelf modules: {e}")
-    print("Make sure you're running this from the OpenShelf root directory")
-    sys.exit(1)
-
-def test_ercolano_repository(limit=10):
-    """Testa il repository di Ercolano"""
-    print("🏛️  Testing Ercolano Repository")
+    print("🏛️  Testing New Ercolano URL")
     print("=" * 50)
 
-    repo = ErcolanoRepository()
+    # URL corretto trovato
+    url = "https://opendata-ercolano.cultura.gov.it/dataset/55608c19-2406-419f-84db-fa3d0b9cd033/resource/64324e26-a659-4c96-8958-98dbc5ecd3a9/download/modelli_3d_hig_res.json"
 
-    print(f"Repository: {repo.name}")
-    print(f"Description: {repo.description}")
-    print(f"Base URL: {repo.base_url}")
-    print(f"API URL: {repo.json_url}")
+    print(f"Testing URL: {url}")
     print()
 
-    # Test connessione
-    print("🔗 Testing connection...")
-    start_time = time.time()
-
     try:
-        assets = repo.fetch_assets(limit=limit)
-        fetch_time = time.time() - start_time
+        # Crea contesto SSL che non verifica certificati (per test)
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
 
-        print(f"✅ Connection successful!")
-        print(f"⏱️  Fetch time: {fetch_time:.2f} seconds")
-        print(f"📦 Assets retrieved: {len(assets)}")
-        print()
-
-        if assets:
-            print("📋 Sample Assets:")
-            print("-" * 30)
-
-            for i, asset in enumerate(assets[:5]):  # Mostra primi 5
-                print(f"{i+1}. {asset.get_display_name()}")
-                print(f"   Type: {asset.object_type}")
-                print(f"   Repository: {asset.repository}")
-                print(f"   Quality: {asset.quality_score}%")
-                print(f"   Has 3D: {'Yes' if asset.has_3d_model() else 'No'}")
-                if asset.materials:
-                    print(f"   Materials: {', '.join(asset.materials[:3])}")
-                if asset.chronology:
-                    print(f"   Period: {', '.join(asset.chronology)}")
-                print()
-
-        # Test statistiche
-        print("📊 Repository Statistics:")
-        print("-" * 25)
-        stats = repo.get_statistics()
-
-        if 'error' not in stats:
-            print(f"Total assets: {stats.get('total_assets', 'Unknown')}")
-            print(f"Assets with 3D: {stats.get('assets_with_3d', 'Unknown')}")
-
-            # Top object types
-            object_types = stats.get('object_types', {})
-            if object_types:
-                print("\nTop object types:")
-                sorted_types = sorted(object_types.items(), key=lambda x: x[1], reverse=True)
-                for obj_type, count in sorted_types[:5]:
-                    print(f"  {obj_type}: {count}")
-
-            # Top materials
-            materials = stats.get('materials', {})
-            if materials:
-                print("\nTop materials:")
-                sorted_materials = sorted(materials.items(), key=lambda x: x[1], reverse=True)
-                for material, count in sorted_materials[:5]:
-                    print(f"  {material}: {count}")
-        else:
-            print(f"❌ Error getting statistics: {stats['error']}")
-
-    except Exception as e:
-        print(f"❌ Connection failed: {str(e)}")
-        return False
-
-    return True
-
-def test_search_functionality(repository, query="anello", limit=5):
-    """Testa la funzionalità di ricerca"""
-    print(f"🔍 Testing Search: '{query}'")
-    print("=" * 30)
-
-    try:
-        # Test ricerca base
-        results = repository.search_assets(query, limit=limit)
-
-        print(f"🎯 Search results: {len(results)}")
-
-        if results:
-            print("\n📋 Search Results:")
-            print("-" * 20)
-
-            for i, asset in enumerate(results):
-                print(f"{i+1}. {asset.get_display_name()}")
-                print(f"   Description: {asset.get_short_description(60)}")
-                print(f"   Quality: {asset.quality_score}%")
-                print()
-
-        # Test ricerca con filtri
-        print("🔍 Testing Filtered Search...")
-        filtered_results = repository.search_assets(
-            query="",
-            filters={
-                "object_type": "anello",
-                "material": "oro"
-            },
-            limit=3
-        )
-
-        print(f"🎯 Filtered results (rings + gold): {len(filtered_results)}")
-
-        if filtered_results:
-            for asset in filtered_results:
-                print(f"  • {asset.get_display_name()}")
-
-    except Exception as e:
-        print(f"❌ Search test failed: {str(e)}")
-        return False
-
-    return True
-
-def test_asset_validation(repository, limit=3):
-    """Testa la validazione degli asset"""
-    print("✅ Testing Asset Validation")
-    print("=" * 30)
-
-    try:
-        assets = repository.fetch_assets(limit=limit)
-
-        if not assets:
-            print("❌ No assets to validate")
-            return False
-
-        for asset in assets:
-            print(f"Validating: {asset.get_display_name()}")
-
-            # Test model URLs
-            model_info = asset.get_model_info()
-            if model_info['has_model']:
-                print(f"  ✅ Has 3D model ({model_info['model_count']} files)")
-                for url in model_info['model_urls'][:2]:  # Check first 2 URLs
-                    print(f"    📄 {url}")
-            else:
-                print(f"  ❌ No 3D model available")
-
-            # Test metadata completeness
-            completeness_score = 0
-            if asset.description:
-                completeness_score += 25
-            if asset.materials:
-                completeness_score += 25
-            if asset.chronology:
-                completeness_score += 25
-            if asset.has_3d_model():
-                completeness_score += 25
-
-            print(f"  📊 Metadata completeness: {completeness_score}%")
-            print()
-
-    except Exception as e:
-        print(f"❌ Validation test failed: {str(e)}")
-        return False
-
-    return True
-
-def test_all_repositories():
-    """Testa tutti i repository disponibili"""
-    print("🌍 Testing All Available Repositories")
-    print("=" * 40)
-
-    # Inizializza registry
-    RepositoryRegistry.initialize()
-
-    repositories = RepositoryRegistry.get_all_repositories()
-
-    if not repositories:
-        print("❌ No repositories found")
-        return False
-
-    success_count = 0
-
-    for repo in repositories:
-        print(f"\n🔗 Testing {repo.name}...")
-        try:
-            # Test base
-            test_assets = repo.fetch_assets(limit=3)
-            if test_assets:
-                print(f"  ✅ {repo.name}: {len(test_assets)} assets retrieved")
-                success_count += 1
-            else:
-                print(f"  ⚠️  {repo.name}: No assets found")
-        except Exception as e:
-            print(f"  ❌ {repo.name}: {str(e)}")
-
-    print(f"\n📊 Summary: {success_count}/{len(repositories)} repositories working")
-    return success_count > 0
-
-def export_sample_data(repository, filename="sample_assets.json", limit=10):
-    """Esporta dati di esempio in JSON"""
-    print(f"💾 Exporting Sample Data to {filename}")
-    print("=" * 40)
-
-    try:
-        assets = repository.fetch_assets(limit=limit)
-
-        # Converti in dizionario serializzabile
-        export_data = {
-            "repository": repository.name,
-            "description": repository.description,
-            "export_time": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "total_exported": len(assets),
-            "assets": [asset.to_dict() for asset in assets]
+        # Crea richiesta
+        headers = {
+            'User-Agent': 'OpenShelf/1.0 (Blender Addon) Test Script',
+            'Accept': 'application/json',
+            'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7'
         }
 
-        # Salva JSON
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(export_data, f, indent=2, ensure_ascii=False)
+        req = urllib.request.Request(url, headers=headers)
 
-        print(f"✅ Exported {len(assets)} assets to {filename}")
-        print(f"📁 File size: {Path(filename).stat().st_size / 1024:.1f} KB")
+        print("🔗 Making request...")
+
+        # Esegui richiesta
+        with urllib.request.urlopen(req, timeout=30, context=ssl_context) as response:
+            print(f"✅ Response Status: {response.status}")
+            print(f"📄 Content-Type: {response.headers.get('Content-Type', 'unknown')}")
+            print(f"📏 Content-Length: {response.headers.get('Content-Length', 'unknown')}")
+            print(f"🖥️  Server: {response.headers.get('Server', 'unknown')}")
+            print()
+
+            # Leggi contenuto
+            content = response.read()
+            print(f"📦 Downloaded: {len(content):,} bytes")
+
+            # Prova a parsare JSON
+            print("🔍 Parsing JSON...")
+            try:
+                data = json.loads(content.decode('utf-8'))
+                print("✅ JSON parsing successful!")
+
+                # Analizza struttura
+                print("\n📊 JSON Structure Analysis:")
+                print("-" * 30)
+
+                if isinstance(data, dict):
+                    print("📋 Root is a dictionary")
+                    print(f"🔑 Root keys: {list(data.keys())}")
+
+                    # Esamina ogni chiave
+                    for key, value in data.items():
+                        print(f"\n🔍 Key '{key}':")
+                        print(f"   Type: {type(value).__name__}")
+
+                        if isinstance(value, list):
+                            print(f"   Length: {len(value)}")
+                            if len(value) > 0:
+                                print(f"   First item type: {type(value[0]).__name__}")
+                                if isinstance(value[0], dict):
+                                    print(f"   First item keys: {list(value[0].keys())}")
+
+                        elif isinstance(value, dict):
+                            print(f"   Sub-keys: {list(value.keys())}")
+
+                        elif isinstance(value, str):
+                            preview = value[:100] + ("..." if len(value) > 100 else "")
+                            print(f"   Preview: {preview}")
+
+                        else:
+                            print(f"   Value: {value}")
+
+                elif isinstance(data, list):
+                    print("📋 Root is a list")
+                    print(f"📏 Length: {len(data)}")
+
+                    if len(data) > 0:
+                        print(f"🔍 First item type: {type(data[0]).__name__}")
+
+                        if isinstance(data[0], dict):
+                            print(f"🔑 First item keys: {list(data[0].keys())}")
+
+                            # Mostra primi 3 record come esempio
+                            print("\n📄 Sample Records:")
+                            for i, record in enumerate(data[:3]):
+                                print(f"\n--- Record {i+1} ---")
+                                for key, value in record.items():
+                                    if isinstance(value, str) and len(value) > 50:
+                                        value = value[:50] + "..."
+                                    print(f"  {key}: {value}")
+
+                else:
+                    print(f"📋 Root is: {type(data).__name__}")
+                    print(f"📄 Value: {data}")
+
+                # Cerca campi che potrebbero contenere URLs di modelli 3D
+                print("\n🎯 Looking for 3D model URLs...")
+                model_url_candidates = []
+
+                def find_urls_recursive(obj, path=""):
+                    if isinstance(obj, dict):
+                        for key, value in obj.items():
+                            new_path = f"{path}.{key}" if path else key
+                            if isinstance(value, str) and ('.obj' in value.lower() or '.zip' in value.lower() or 'model' in key.lower() or '3d' in key.lower() or 'file' in key.lower() or 'download' in key.lower() or 'url' in key.lower()):
+                                model_url_candidates.append((new_path, value))
+                            elif isinstance(value, (dict, list)):
+                                find_urls_recursive(value, new_path)
+                    elif isinstance(obj, list):
+                        for i, item in enumerate(obj):
+                            new_path = f"{path}[{i}]"
+                            find_urls_recursive(item, new_path)
+
+                find_urls_recursive(data)
+
+                if model_url_candidates:
+                    print("🎯 Found potential 3D model URLs:")
+                    for path, url in model_url_candidates[:10]:  # Show first 10
+                        print(f"   {path}: {url}")
+                else:
+                    print("⚠️  No obvious 3D model URLs found in field names")
+
+                # Cerca specificamente nei records se disponibili
+                if isinstance(data, dict) and 'jsonData' in data and 'records' in data['jsonData']:
+                    records = data['jsonData']['records']
+                    print(f"\n🔍 Analyzing {len(records)} records for 3D content...")
+
+                    # Analizza tutti i campi unici nei record
+                    all_fields = set()
+                    sample_values = {}
+
+                    for record in records[:10]:  # Analizza primi 10 record
+                        for key, value in record.items():
+                            all_fields.add(key)
+                            if key not in sample_values:
+                                sample_values[key] = str(value)[:100] if value else ""
+
+                    print(f"\n📋 All unique fields in records ({len(all_fields)} total):")
+                    for field in sorted(all_fields):
+                        sample = sample_values.get(field, "")
+                        if len(sample) > 50:
+                            sample = sample[:50] + "..."
+                        print(f"   📄 {field}: {sample}")
+
+                        # Cerca campi che potrebbero contenere URL
+                        if any(keyword in field.lower() for keyword in ['url', 'link', 'file', 'model', '3d', 'download', 'href']):
+                            print(f"      🎯 Potential URL field!")
+
+                # Statistiche finali
+                if isinstance(data, dict) and 'jsonData' in data:
+                    json_data = data['jsonData']
+                    if 'totRecord' in json_data:
+                        print(f"\n📊 Summary: {json_data['totRecord']} total records available")
+                    if 'records' in json_data:
+                        print(f"📦 Downloaded: {len(json_data['records'])} records in this response")
+                elif isinstance(data, list):
+                    print(f"\n📊 Summary: Found {len(data)} records")
+                elif isinstance(data, dict):
+                    total_records = 0
+                    for value in data.values():
+                        if isinstance(value, list):
+                            total_records += len(value)
+                    print(f"\n📊 Summary: Found ~{total_records} total items")
+
+                return True
+
+            except json.JSONDecodeError as e:
+                print(f"❌ JSON parsing failed: {e}")
+                print(f"📄 Content preview: {content[:500]}")
+                return False
 
     except Exception as e:
-        print(f"❌ Export failed: {str(e)}")
+        print(f"❌ Request failed: {e}")
         return False
 
-    return True
-
 def main():
-    """Funzione principale"""
-    parser = argparse.ArgumentParser(description="Test OpenShelf repositories")
-    parser.add_argument("--repository", "-r", choices=["ercolano", "all"],
-                       default="ercolano", help="Repository to test")
-    parser.add_argument("--limit", "-l", type=int, default=10,
-                       help="Number of assets to fetch")
-    parser.add_argument("--search", "-s", type=str,
-                       help="Test search with specific query")
-    parser.add_argument("--export", "-e", type=str,
-                       help="Export sample data to JSON file")
-    parser.add_argument("--validate", action="store_true",
-                       help="Run asset validation tests")
-    parser.add_argument("--stats", action="store_true",
-                       help="Show detailed statistics")
-
-    args = parser.parse_args()
-
-    print("🚀 OpenShelf Repository Test")
+    """Test principale"""
+    print("🚀 Ercolano URL Test")
     print("=" * 50)
-    print(f"Python: {sys.version}")
-    print(f"Test limit: {args.limit} assets")
-    print()
 
-    success = True
-
-    if args.repository == "all":
-        success = test_all_repositories()
-    else:
-        # Test Ercolano
-        success = test_ercolano_repository(args.limit)
-
-        if success:
-            repo = ErcolanoRepository()
-
-            # Test ricerca se richiesto
-            if args.search:
-                success &= test_search_functionality(repo, args.search, args.limit)
-
-            # Test validazione se richiesto
-            if args.validate:
-                success &= test_asset_validation(repo, min(args.limit, 5))
-
-            # Export se richiesto
-            if args.export:
-                success &= export_sample_data(repo, args.export, args.limit)
+    success = test_new_ercolano_url()
 
     print("\n" + "=" * 50)
     if success:
-        print("✅ All tests completed successfully!")
-        print("🎉 OpenShelf repositories are working correctly")
+        print("✅ Test completed successfully!")
+        print("🎉 The new Ercolano URL is working!")
     else:
-        print("❌ Some tests failed")
-        print("🔧 Check your internet connection and repository status")
+        print("❌ Test failed")
+        print("🔧 Check the URL and network connection")
 
     return 0 if success else 1
 
