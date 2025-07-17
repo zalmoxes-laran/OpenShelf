@@ -207,11 +207,6 @@ openshelf/
 
 ### 🔮 Planned Repositories
 
-#### Pompei (Parco Archeologico di Pompei)
-- **Status**: Planned
-- **Assets**: Archaeological artifacts from Pompeii
-- **Formats**: OBJ, GLTF
-
 #### Europeana
 - **Status**: Planned  
 - **Assets**: 1M+ European cultural heritage items
