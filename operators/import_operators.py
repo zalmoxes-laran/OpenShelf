@@ -467,7 +467,7 @@ class OPENSHELF_OT_validate_asset(Operator):
         try:
             validation_results = []
 
-            # Valida presenza URL modelli
+            # 1. VALIDA URL MODELLI
             try:
                 model_urls = json.loads(asset_data.model_urls) if asset_data.model_urls else []
             except:
@@ -475,33 +475,54 @@ class OPENSHELF_OT_validate_asset(Operator):
 
             if not model_urls:
                 validation_results.append("❌ No model URLs available")
+                model_files_info = []
             else:
-                # Controlla formato degli URL/path
-                from ..utils.file_utils import URLUtils
-                valid_count = 0
+                validation_results.append(f"✅ Found {len(model_urls)} model URL(s)")
+
+                # 2. CONTROLLA DIMENSIONI FILE (NUOVO!)
+                from ..utils.download_manager import get_download_manager
+                dm = get_download_manager()
+
+                model_files_info = []
+                total_size = 0
 
                 for i, url in enumerate(model_urls):
                     if not url or not url.strip():
-                        validation_results.append(f"❌ Model URL {i+1}: Empty")
+                        validation_results.append(f"❌ Model {i+1}: Empty URL")
                         continue
 
                     url = url.strip()
+                    validation_results.append(f"🔍 Checking model {i+1}: {url.split('/')[-1]}")
 
-                    # Accetta sia URL completi che path/ID relativi
-                    if URLUtils.is_valid_url(url):
-                        validation_results.append(f"✅ Model URL {i+1}: Valid HTTP URL")
-                        valid_count += 1
-                    elif url.startswith('/') or '.' in url or len(url) > 10:
-                        # Potrebbe essere un path relativo o ID lungo
-                        validation_results.append(f"⚠️ Model URL {i+1}: Relative path or ID")
-                        valid_count += 1
+                    # Ottieni info file senza scaricarlo
+                    file_info = dm.get_file_info_quick(url)
+                    model_files_info.append(file_info)
+
+                    if file_info["available"]:
+                        size_human = file_info["size_human"]
+                        total_size += file_info["size_bytes"]
+                        validation_results.append(f"✅ Model {i+1}: {size_human} - Available")
+
+                        # Avvisi per dimensioni
+                        if file_info["size_bytes"] > 50 * 1024 * 1024:  # > 50MB
+                            validation_results.append(f"⚠️ Model {i+1}: Large file ({size_human})")
+                        elif file_info["size_bytes"] == 0:
+                            validation_results.append(f"❓ Model {i+1}: Size unknown")
+
                     else:
-                        validation_results.append(f"❓ Model URL {i+1}: Unknown format: {url[:50]}")
+                        validation_results.append(f"❌ Model {i+1}: Not accessible - {file_info.get('error', 'Unknown error')}")
 
-                if valid_count == 0:
-                    validation_results.append("❌ No usable model URLs found")
+                # Riepilogo dimensioni
+                if total_size > 0:
+                    total_human = dm.format_file_size(total_size)
+                    validation_results.append(f"📊 Total download size: {total_human}")
 
-            # Valida metadati
+                    # Stima tempo download (ipotizzando 1MB/s)
+                    if total_size > 1024 * 1024:  # > 1MB
+                        time_seconds = total_size / (1024 * 1024)  # Stima pessimistica
+                        validation_results.append(f"⏱️ Estimated download time: ~{time_seconds:.0f}s")
+
+            # 3. VALIDA METADATI
             metadata_score = 0
             total_checks = 6
 
@@ -541,34 +562,53 @@ class OPENSHELF_OT_validate_asset(Operator):
             else:
                 validation_results.append("⚠️ Chronology: Missing")
 
-            # Valuta qualità generale
+            # 4. RIEPILOGO FINALE
             quality_percentage = (metadata_score / total_checks) * 100
 
             if asset_data.quality_score > 0:
-                validation_results.append(f"📊 Quality score: {asset_data.quality_score}%")
+                validation_results.append(f"📊 Repository quality score: {asset_data.quality_score}%")
 
             validation_results.append(f"📈 Metadata completeness: {quality_percentage:.0f}%")
 
-            # Mostra risultati in popup
-            validation_text = "\n".join(validation_results)
-
+            # 5. MOSTRA RISULTATI IN POPUP MIGLIORATO
             def draw_validation_popup(self, context):
                 layout = self.layout
-                layout.label(text=f"Validation: {asset_data.name}")
+                layout.label(text=f"Validation: {asset_data.name[:30]}...", icon='CHECKMARK')
                 layout.separator()
 
-                # Mostra risultati linea per linea
-                for line in validation_results:
+                # Box per file info
+                if model_files_info:
+                    box = layout.box()
+                    box.label(text="File Information", icon='FILE')
+                    for i, file_info in enumerate(model_files_info):
+                        row = box.row()
+                        if file_info["available"]:
+                            icon = 'CHECKMARK'
+                            text = f"Model {i+1}: {file_info['size_human']}"
+                        else:
+                            icon = 'CANCEL'
+                            text = f"Model {i+1}: Not available"
+                        row.label(text=text, icon=icon)
+
+                    if total_size > 0:
+                        box.label(text=f"Total: {dm.format_file_size(total_size)}", icon='INFO')
+
+                # Box per risultati validazione
+                box = layout.box()
+                box.label(text="Validation Results", icon='TOOL_SETTINGS')
+
+                # Mostra primi N risultati (per evitare popup troppo lungo)
+                for line in validation_results[-10:]:  # Ultimi 10 risultati più importanti
                     if line.startswith("✅"):
-                        layout.label(text=line, icon='CHECKMARK')
+                        box.label(text=line[2:], icon='CHECKMARK')
                     elif line.startswith("❌"):
-                        layout.label(text=line, icon='CANCEL')
+                        box.label(text=line[2:], icon='CANCEL')
                     elif line.startswith("⚠️"):
-                        layout.label(text=line, icon='ERROR')
-                    elif line.startswith("📊") or line.startswith("📈"):
-                        layout.label(text=line, icon='INFO')
+                        box.label(text=line[2:], icon='ERROR')
+                    elif line.startswith("📊") or line.startswith("📈") or line.startswith("⏱️"):
+                        box.label(text=line[2:], icon='INFO')
                     else:
-                        layout.label(text=line)
+                        box.label(text=line)
 
             context.window_manager.popup_menu(
                 draw_validation_popup,
@@ -576,16 +616,19 @@ class OPENSHELF_OT_validate_asset(Operator):
                 icon='CHECKMARK'
             )
 
-            # Determina risultato finale
-            has_models = len([r for r in validation_results if "✅" in r and "URL" in r]) > 0
+            # 6. DETERMINA RISULTATO FINALE
+            has_models = len([f for f in model_files_info if f.get("available", False)]) > 0
             has_basic_metadata = metadata_score >= 3
 
             if has_models and has_basic_metadata:
-                self.report({'INFO'}, f"Asset validation passed ({quality_percentage:.0f}% complete)")
+                if total_size > 0:
+                    self.report({'INFO'}, f"✅ Validation passed - {dm.format_file_size(total_size)} to download")
+                else:
+                    self.report({'INFO'}, f"✅ Validation passed ({quality_percentage:.0f}% complete)")
             elif has_models:
-                self.report({'WARNING'}, f"Asset has models but incomplete metadata ({quality_percentage:.0f}%)")
+                self.report({'WARNING'}, f"⚠️ Models available but incomplete metadata ({quality_percentage:.0f}%)")
             else:
-                self.report({'ERROR'}, "Asset validation failed - no usable models found")
+                self.report({'ERROR'}, "❌ Validation failed - no accessible models found")
 
         except Exception as e:
             print(f"OpenShelf: Error validating asset: {e}")

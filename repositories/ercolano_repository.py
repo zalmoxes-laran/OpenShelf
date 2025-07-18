@@ -31,7 +31,7 @@ class ErcolanoRepository(BaseRepository):
         self.dataset_page_url = "https://opendata-ercolano.cultura.gov.it/dataset/modelli-3d-lr/resource/64324e26-a659-4c96-8958-98dbc5ecd3a9"
 
     def get_total_count_from_api(self) -> int:
-        """Ottiene il numero totale di record dal JSON API"""
+        """Ottiene il numero totale di record dal JSON API di Ercolano"""
         try:
             req = urllib.request.Request(
                 self.json_url,
@@ -45,20 +45,18 @@ class ErcolanoRepository(BaseRepository):
                 content = response.read()
                 raw_data = json.loads(content.decode('utf-8'))
 
-            # Estrai totRecord dal JSON
+            # Estrai totRecord dal JSON di Ercolano
             if isinstance(raw_data, dict) and "jsonData" in raw_data:
                 json_data = raw_data["jsonData"]
                 total_records = json_data.get("totRecord", 0)
-                print(f"OpenShelf: Total records from API: {total_records}")
+                print(f"OpenShelf: Total records from Ercolano API: {total_records}")
                 return total_records
 
             return 0
 
         except Exception as e:
-            print(f"OpenShelf: Error getting total count: {e}")
+            print(f"OpenShelf: Error getting total count from Ercolano: {e}")
             return 0
-
-
 
     def fetch_assets(self, limit: int = 100) -> List[CulturalAsset]:
         """Scarica gli asset da Ercolano"""
@@ -177,14 +175,11 @@ class ErcolanoRepository(BaseRepository):
 
         print(f"OpenShelf: Parsing Ercolano JSON structure...")
 
-        # STRUTTURA CORRETTA dal JSON mostrato:
+        # STRUTTURA CORRETTA dal JSON:
         # {
         #   "messageBean": {...},
         #   "jsonData": {
         #     "totRecord": 2124,
-        #     "page": 0,
-        #     "maxItemPage": 0,
-        #     "idNormativa": "SIPA1",
         #     "records": [ ... array di record ... ]
         #   }
         # }

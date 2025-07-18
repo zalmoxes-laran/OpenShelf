@@ -1,5 +1,5 @@
 """
-OpenShelf Download Manager
+OpenShelf Download Manager - COMPLETE FIXED VERSION
 Gestisce download, cache e estrazione file per gli asset culturali
 """
 
@@ -9,7 +9,7 @@ import urllib.request
 import zipfile
 import shutil
 from pathlib import Path
-from typing import Optional, Dict, List, Callable
+from typing import Optional, Dict, List, Callable, Any  # <-- FIX: Aggiunto Any
 import hashlib
 import json
 import time
@@ -224,7 +224,6 @@ class DownloadManager:
         self.active_downloads = {}
         self.download_lock = threading.Lock()
 
-
     def get_file_size(self, url: str) -> int:
         """
         Ottiene la dimensione di un file senza scaricarlo (HEAD request)
@@ -312,7 +311,6 @@ class DownloadManager:
             unit_index += 1
 
         return f"{size:.1f} {units[unit_index]}"
-
 
     def download_file(self, url: str, use_cache: bool = True,
                      progress_callback: Optional[Callable[[int, int], None]] = None) -> Optional[str]:

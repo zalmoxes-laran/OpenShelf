@@ -150,9 +150,8 @@ class OPENSHELF_OT_search_assets(Operator):
             print(f"OpenShelf: Error updating search results: {e}")
             scene.openshelf_status_message = f"Error updating results: {str(e)}"
 
-
     def _check_search_progress(self, context):
-        """Controlla progresso ricerca (chiamato da timer)"""
+        """Controlla progresso ricerca (chiamato da timer) - FIXED"""
         try:
             scene = context.scene
 
