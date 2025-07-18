@@ -42,8 +42,14 @@ paths_exclude_pattern = [
     "__pycache__/",
     "/.git/",
     "/*.zip",
-    "/.gitignore",
-    "/README.md",
-    "/docs/",
     "/.vscode/",
+    "/test_*.py",
+    "/debug_*.py",
+    "/docs/",
+    "*.md",
+    ".gitignore",
+    "*.pyc",
+    "/.pytest_cache/",
+    "/cache/",
+    "/test_downloads/"
 ]
