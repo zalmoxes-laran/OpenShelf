@@ -6,6 +6,103 @@ Pannelli aggiuntivi nel viewport 3D
 import bpy
 from bpy.types import Panel
 
+
+class OPENSHELF_PT_statistics_panel(Panel):
+    """Pannello statistiche repository"""
+    bl_label = "Repository Statistics"
+    bl_idname = "OPENSHELF_PT_statistics_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OpenShelf"
+    bl_parent_id = "OPENSHELF_PT_main_panel"
+    bl_order = 7
+    bl_options = {'DEFAULT_CLOSED'}  # Chiuso di default per non occupare spazio
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+
+        # Pulsante per ottenere statistiche
+        box = layout.box()
+        box.label(text="Repository Info", icon='GRAPH')
+
+        col = box.column(align=True)
+        col.operator("openshelf.repository_statistics", text="View Full Statistics", icon='GRAPH')
+        col.operator("openshelf.registry_status", text="Registry Status", icon='INFO')
+
+        # Statistiche rapide se disponibili nei risultati correnti
+        if hasattr(scene, 'openshelf_search_results') and scene.openshelf_search_results:
+            box = layout.box()
+            box.label(text="Current Results", icon='PRESET')
+
+            col = box.column(align=True)
+            col.scale_y = 0.8
+
+            # Conta risultati per tipo
+            type_counts = {}
+            repo_counts = {}
+            quality_scores = []
+
+            for result in scene.openshelf_search_results:
+                # Tipo oggetto
+                obj_type = result.object_type or "N/D"
+                type_counts[obj_type] = type_counts.get(obj_type, 0) + 1
+
+                # Repository
+                repo = result.repository or "Unknown"
+                repo_counts[repo] = repo_counts.get(repo, 0) + 1
+
+                # Qualità
+                if result.quality_score > 0:
+                    quality_scores.append(result.quality_score)
+
+            # Mostra conteggi
+            col.label(text=f"Total results: {len(scene.openshelf_search_results)}")
+
+            if len(repo_counts) > 1:
+                col.label(text="By repository:")
+                for repo, count in sorted(repo_counts.items(), key=lambda x: x[1], reverse=True):
+                    col.label(text=f"  • {repo}: {count}")
+
+            if len(type_counts) > 1:
+                col.label(text="By type:")
+                top_types = sorted(type_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+                for obj_type, count in top_types:
+                    col.label(text=f"  • {obj_type}: {count}")
+
+                if len(type_counts) > 3:
+                    col.label(text=f"  ... and {len(type_counts) - 3} more")
+
+            if quality_scores:
+                avg_quality = sum(quality_scores) / len(quality_scores)
+                col.label(text=f"Avg quality: {avg_quality:.0f}%")
+
+        # Info cache
+        box = layout.box()
+        box.label(text="Cache Info", icon='FILE_CACHE')
+
+        col = box.column(align=True)
+        col.scale_y = 0.8
+
+        try:
+            from ..utils.download_manager import get_download_manager
+            dm = get_download_manager()
+            cache_stats = dm.get_cache_statistics()
+
+            col.label(text=f"Cache: {cache_stats['file_count']} files")
+            cache_size_mb = cache_stats['cache_size'] / (1024*1024)
+            col.label(text=f"Size: {cache_size_mb:.1f} MB")
+
+        except Exception:
+            col.label(text="Cache: Not available")
+
+        # Azioni pulizia
+        row = col.row(align=True)
+        row.scale_y = 0.8
+        clear_op = row.operator("openshelf.clear_repository_cache", text="Clear", icon='TRASH')
+        clear_op.repository_name = "all"
+        clear_op.confirm = True
+
 class OPENSHELF_PT_object_info(Panel):
     """Pannello informazioni oggetto OpenShelf"""
     bl_label = "Cultural Asset Info"
@@ -271,6 +368,7 @@ class OPENSHELF_PT_help_panel(Panel):
 panels = [
     OPENSHELF_PT_object_info,
     OPENSHELF_PT_quick_actions,
+    OPENSHELF_PT_statistics_panel,
     OPENSHELF_PT_help_panel,
 ]
 

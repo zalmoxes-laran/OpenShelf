@@ -465,49 +465,127 @@ class OPENSHELF_OT_validate_asset(Operator):
             return {'CANCELLED'}
 
         try:
-            # Parsa URLs modelli
+            validation_results = []
+
+            # Valida presenza URL modelli
             try:
                 model_urls = json.loads(asset_data.model_urls) if asset_data.model_urls else []
             except:
                 model_urls = [asset_data.model_urls] if asset_data.model_urls else []
 
             if not model_urls:
-                self.report({'ERROR'}, "No model URLs to validate")
-                return {'CANCELLED'}
-
-            # Valida URL (controllo base)
-            from ..utils.file_utils import URLUtils
-
-            valid_urls = 0
-            for url in model_urls:
-                if URLUtils.is_valid_url(url):
-                    valid_urls += 1
-
-            if valid_urls == 0:
-                self.report({'ERROR'}, "No valid URLs found")
-                return {'CANCELLED'}
-
-            # Valida qualità asset
-            quality_issues = []
-
-            if asset_data.quality_score < 50:
-                quality_issues.append("Low quality score")
-
-            if not asset_data.description:
-                quality_issues.append("Missing description")
-
-            if not asset_data.materials:
-                quality_issues.append("Missing materials information")
-
-            if not asset_data.chronology:
-                quality_issues.append("Missing chronology information")
-
-            # Mostra risultati validazione
-            if quality_issues:
-                issues_text = "\n".join([f"• {issue}" for issue in quality_issues])
-                self.report({'WARNING'}, f"Asset validation warnings:\n{issues_text}")
+                validation_results.append("❌ No model URLs available")
             else:
-                self.report({'INFO'}, "Asset validation passed")
+                # Controlla formato degli URL/path
+                from ..utils.file_utils import URLUtils
+                valid_count = 0
+
+                for i, url in enumerate(model_urls):
+                    if not url or not url.strip():
+                        validation_results.append(f"❌ Model URL {i+1}: Empty")
+                        continue
+
+                    url = url.strip()
+
+                    # Accetta sia URL completi che path/ID relativi
+                    if URLUtils.is_valid_url(url):
+                        validation_results.append(f"✅ Model URL {i+1}: Valid HTTP URL")
+                        valid_count += 1
+                    elif url.startswith('/') or '.' in url or len(url) > 10:
+                        # Potrebbe essere un path relativo o ID lungo
+                        validation_results.append(f"⚠️ Model URL {i+1}: Relative path or ID")
+                        valid_count += 1
+                    else:
+                        validation_results.append(f"❓ Model URL {i+1}: Unknown format: {url[:50]}")
+
+                if valid_count == 0:
+                    validation_results.append("❌ No usable model URLs found")
+
+            # Valida metadati
+            metadata_score = 0
+            total_checks = 6
+
+            if asset_data.name and asset_data.name.strip():
+                validation_results.append("✅ Name: Present")
+                metadata_score += 1
+            else:
+                validation_results.append("❌ Name: Missing")
+
+            if asset_data.description and len(asset_data.description.strip()) > 10:
+                validation_results.append("✅ Description: Adequate")
+                metadata_score += 1
+            else:
+                validation_results.append("⚠️ Description: Too short or missing")
+
+            if asset_data.object_type and asset_data.object_type.strip():
+                validation_results.append("✅ Object type: Present")
+                metadata_score += 1
+            else:
+                validation_results.append("❌ Object type: Missing")
+
+            if asset_data.inventory_number and asset_data.inventory_number.strip():
+                validation_results.append("✅ Inventory number: Present")
+                metadata_score += 1
+            else:
+                validation_results.append("⚠️ Inventory number: Missing")
+
+            if asset_data.materials and asset_data.materials.strip():
+                validation_results.append("✅ Materials: Present")
+                metadata_score += 1
+            else:
+                validation_results.append("⚠️ Materials: Missing")
+
+            if asset_data.chronology and asset_data.chronology.strip():
+                validation_results.append("✅ Chronology: Present")
+                metadata_score += 1
+            else:
+                validation_results.append("⚠️ Chronology: Missing")
+
+            # Valuta qualità generale
+            quality_percentage = (metadata_score / total_checks) * 100
+
+            if asset_data.quality_score > 0:
+                validation_results.append(f"📊 Quality score: {asset_data.quality_score}%")
+
+            validation_results.append(f"📈 Metadata completeness: {quality_percentage:.0f}%")
+
+            # Mostra risultati in popup
+            validation_text = "\n".join(validation_results)
+
+            def draw_validation_popup(self, context):
+                layout = self.layout
+                layout.label(text=f"Validation: {asset_data.name}")
+                layout.separator()
+
+                # Mostra risultati linea per linea
+                for line in validation_results:
+                    if line.startswith("✅"):
+                        layout.label(text=line, icon='CHECKMARK')
+                    elif line.startswith("❌"):
+                        layout.label(text=line, icon='CANCEL')
+                    elif line.startswith("⚠️"):
+                        layout.label(text=line, icon='ERROR')
+                    elif line.startswith("📊") or line.startswith("📈"):
+                        layout.label(text=line, icon='INFO')
+                    else:
+                        layout.label(text=line)
+
+            context.window_manager.popup_menu(
+                draw_validation_popup,
+                title="Asset Validation Results",
+                icon='CHECKMARK'
+            )
+
+            # Determina risultato finale
+            has_models = len([r for r in validation_results if "✅" in r and "URL" in r]) > 0
+            has_basic_metadata = metadata_score >= 3
+
+            if has_models and has_basic_metadata:
+                self.report({'INFO'}, f"Asset validation passed ({quality_percentage:.0f}% complete)")
+            elif has_models:
+                self.report({'WARNING'}, f"Asset has models but incomplete metadata ({quality_percentage:.0f}%)")
+            else:
+                self.report({'ERROR'}, "Asset validation failed - no usable models found")
 
         except Exception as e:
             print(f"OpenShelf: Error validating asset: {e}")

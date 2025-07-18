@@ -30,19 +30,58 @@ class ErcolanoRepository(BaseRepository):
         # URL alternativo della pagina dataset
         self.dataset_page_url = "https://opendata-ercolano.cultura.gov.it/dataset/modelli-3d-lr/resource/64324e26-a659-4c96-8958-98dbc5ecd3a9"
 
+    def get_total_count_from_api(self) -> int:
+        """Ottiene il numero totale di record dal JSON API"""
+        try:
+            req = urllib.request.Request(
+                self.json_url,
+                headers={
+                    'User-Agent': 'OpenShelf/1.0 (Blender Addon)',
+                    'Accept': 'application/json'
+                }
+            )
+
+            with urllib.request.urlopen(req, timeout=15) as response:
+                content = response.read()
+                raw_data = json.loads(content.decode('utf-8'))
+
+            # Estrai totRecord dal JSON
+            if isinstance(raw_data, dict) and "jsonData" in raw_data:
+                json_data = raw_data["jsonData"]
+                total_records = json_data.get("totRecord", 0)
+                print(f"OpenShelf: Total records from API: {total_records}")
+                return total_records
+
+            return 0
+
+        except Exception as e:
+            print(f"OpenShelf: Error getting total count: {e}")
+            return 0
+
+
+
     def fetch_assets(self, limit: int = 100) -> List[CulturalAsset]:
         """Scarica gli asset da Ercolano"""
 
+        # Determina se stiamo fetchando per statistiche (limit alto) o per UI normale
+        is_stats_fetch = limit > 1000
+        cache_key = f"ercolano_assets_all" if is_stats_fetch else f"ercolano_assets_{limit}"
+
         # Controlla cache
-        cache_key = f"ercolano_assets_{limit}"
         if (cache_key in self._cache and
             self._last_fetch_time and
             time.time() - self._last_fetch_time < self._cache_duration):
-            print(f"OpenShelf: Using cached Ercolano data")
-            return self._cache[cache_key]
+            print(f"OpenShelf: Using cached Ercolano data ({'all assets' if is_stats_fetch else f'{limit} assets'})")
+            cached_assets = self._cache[cache_key]
+            # Per richieste normali, limita comunque il risultato
+            return cached_assets if is_stats_fetch else cached_assets[:limit]
 
         try:
-            print(f"OpenShelf: Fetching assets from Ercolano...")
+            if is_stats_fetch:
+                print(f"OpenShelf: Fetching ALL assets from Ercolano for statistics...")
+            else:
+                print(f"OpenShelf: Fetching {limit} assets from Ercolano...")
+
             print(f"OpenShelf: Using URL: {self.json_url}")
 
             # Configurazione richiesta
@@ -65,19 +104,24 @@ class ErcolanoRepository(BaseRepository):
 
                 raw_data = json.loads(content.decode('utf-8'))
 
-            # Parsa i dati
-            assets = self.parse_raw_data(raw_data)
+            # Parsa TUTTI i dati (senza limit qui)
+            all_assets = self.parse_raw_data(raw_data)
 
-            # Limita i risultati se richiesto
-            if limit > 0:
-                assets = assets[:limit]
+            # Salva TUTTI gli asset in cache per statistiche
+            self._cache["ercolano_assets_all"] = all_assets
 
-            # Salva in cache
-            self._cache[cache_key] = assets
+            # Per richieste normali, salva anche la versione limitata
+            if not is_stats_fetch:
+                limited_assets = all_assets[:limit]
+                self._cache[cache_key] = limited_assets
+
             self._last_fetch_time = time.time()
 
-            print(f"OpenShelf: Fetched {len(assets)} assets from Ercolano")
-            return assets
+            # Restituisci risultato appropriato
+            result_assets = all_assets if is_stats_fetch else all_assets[:limit]
+
+            print(f"OpenShelf: Fetched {len(result_assets)} assets from Ercolano (total available: {len(all_assets)})")
+            return result_assets
 
         except urllib.error.URLError as e:
             print(f"OpenShelf: Network error fetching from Ercolano: {e}")
@@ -89,55 +133,124 @@ class ErcolanoRepository(BaseRepository):
             print(f"OpenShelf: Error fetching from Ercolano: {e}")
             return []
 
+    def get_total_assets_count(self) -> int:
+        """Ottiene il numero totale di asset senza caricarli tutti"""
+        try:
+            # Se abbiamo la cache completa, usa quella
+            if "ercolano_assets_all" in self._cache:
+                return len(self._cache["ercolano_assets_all"])
+
+            # Altrimenti, fai una richiesta per ottenere il count
+            # (questo metodo è più veloce per ottenere solo il numero)
+            req = urllib.request.Request(
+                self.json_url,
+                headers={
+                    'User-Agent': 'OpenShelf/1.0 (Blender Addon)',
+                    'Accept': 'application/json'
+                }
+            )
+
+            with urllib.request.urlopen(req, timeout=15) as response:
+                content = response.read()
+                raw_data = json.loads(content.decode('utf-8'))
+
+            # Conta i record senza parserarli completamente
+            records = []
+            if isinstance(raw_data, list):
+                records = raw_data
+            elif isinstance(raw_data, dict):
+                for key in ['records', 'data', 'result', 'items', 'assets', 'objects']:
+                    if key in raw_data and isinstance(raw_data[key], list):
+                        records = raw_data[key]
+                        break
+
+            return len(records)
+
+        except Exception as e:
+            print(f"OpenShelf: Error getting asset count: {e}")
+            return 0
+
+
     def parse_raw_data(self, raw_data: Dict[str, Any]) -> List[CulturalAsset]:
         """Converte i dati di Ercolano in CulturalAsset standardizzati"""
         assets = []
 
-        # Il nuovo formato potrebbe essere diverso, dobbiamo esplorare la struttura
-        print(f"OpenShelf: Exploring JSON structure...")
-        print(f"OpenShelf: JSON root keys: {list(raw_data.keys()) if isinstance(raw_data, dict) else 'Not a dict'}")
+        print(f"OpenShelf: Parsing Ercolano JSON structure...")
 
-        # Gestisci diversi formati possibili
+        # STRUTTURA CORRETTA dal JSON mostrato:
+        # {
+        #   "messageBean": {...},
+        #   "jsonData": {
+        #     "totRecord": 2124,
+        #     "page": 0,
+        #     "maxItemPage": 0,
+        #     "idNormativa": "SIPA1",
+        #     "records": [ ... array di record ... ]
+        #   }
+        # }
+
         records = []
+        total_records = 0
 
-        if isinstance(raw_data, list):
-            # Se è direttamente una lista di record
-            records = raw_data
-            print(f"OpenShelf: Found direct list with {len(records)} records")
+        # Trova la struttura jsonData.records
+        if isinstance(raw_data, dict) and "jsonData" in raw_data:
+            json_data = raw_data["jsonData"]
 
-        elif isinstance(raw_data, dict):
-            # Se è un dizionario, cerca possibili chiavi per i record
-            possible_keys = ['records', 'data', 'result', 'items', 'assets', 'objects']
+            if isinstance(json_data, dict):
+                # Ottieni informazioni totali
+                total_records = json_data.get("totRecord", 0)
+                print(f"OpenShelf: Total records available in Ercolano: {total_records}")
 
-            for key in possible_keys:
-                if key in raw_data:
-                    records = raw_data[key]
-                    print(f"OpenShelf: Found records under key '{key}' with {len(records)} items")
-                    break
-
-            # Se non trova chiavi note, usa tutti i valori che sono liste
-            if not records:
-                for key, value in raw_data.items():
-                    if isinstance(value, list) and len(value) > 0:
-                        records = value
-                        print(f"OpenShelf: Using list from key '{key}' with {len(records)} items")
-                        break
-
-        if not records:
-            print("OpenShelf: No records found in JSON data")
+                # Ottieni array records
+                if "records" in json_data and isinstance(json_data["records"], list):
+                    records = json_data["records"]
+                    print(f"OpenShelf: Found {len(records)} records in this response")
+                else:
+                    print("OpenShelf: No 'records' array found in jsonData")
+            else:
+                print("OpenShelf: jsonData is not a dictionary")
+        else:
+            print("OpenShelf: No 'jsonData' key found in response")
+            print(f"OpenShelf: Available keys: {list(raw_data.keys()) if isinstance(raw_data, dict) else 'Not a dict'}")
             return assets
 
-        # Esamina struttura del primo record per debug
+        if not records:
+            print("OpenShelf: No records found to process")
+            return assets
+
+        # Debug: mostra struttura del primo record
         if records and len(records) > 0:
             sample_record = records[0]
             print(f"OpenShelf: Sample record keys: {list(sample_record.keys()) if isinstance(sample_record, dict) else 'Not a dict'}")
 
+            # Verifica presenza campi chiave
+            key_fields = ["id", "nrInventario", "oggetto", "materiaTecnicas", "cronologias", "modelli3D_hr"]
+            missing_fields = []
+            for field in key_fields:
+                if field not in sample_record:
+                    missing_fields.append(field)
+
+            if missing_fields:
+                print(f"OpenShelf: Warning - Missing expected fields: {missing_fields}")
+            else:
+                print("OpenShelf: ✓ All expected fields found in sample record")
+
         # Processa ogni record
+        processed_count = 0
+        error_count = 0
+
         for i, record in enumerate(records):
             try:
                 # Valida record
                 if not isinstance(record, dict):
                     print(f"OpenShelf: Skipping non-dict record {i}")
+                    error_count += 1
+                    continue
+
+                # Verifica campi minimi
+                if not record.get("id"):
+                    print(f"OpenShelf: Skipping record {i} - missing ID")
+                    error_count += 1
                     continue
 
                 # Trasforma il formato di Ercolano in formato standardizzato
@@ -146,207 +259,186 @@ class ErcolanoRepository(BaseRepository):
                 # Crea asset
                 asset = CulturalAsset(standardized_data, self.name)
                 assets.append(asset)
+                processed_count += 1
+
+                # Debug per primi 3 record
+                if i < 3:
+                    print(f"OpenShelf: Record {i+1}: {asset.inventory_number} - {asset.object_type}")
+                    print(f"  - Materials: {asset.materials}")
+                    print(f"  - Model URLs: {len(asset.model_urls)} found")
+                    if asset.model_urls:
+                        print(f"    First URL: {asset.model_urls[0]}")
 
             except Exception as e:
                 print(f"OpenShelf: Error processing Ercolano record {i}: {e}")
+                error_count += 1
                 continue
 
-        print(f"OpenShelf: Successfully processed {len(assets)} Ercolano assets")
+        print(f"OpenShelf: Processing complete:")
+        print(f"  - Total available: {total_records}")
+        print(f"  - Successfully processed: {processed_count}")
+        print(f"  - Errors: {error_count}")
+        print(f"  - Assets with 3D models: {len([a for a in assets if a.has_3d_model()])}")
+
         return assets
 
     def standardize_ercolano_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
         """Converte un record Ercolano nel formato standardizzato"""
 
-        # Esplora possibili mappature per i campi
-        # Il nuovo dataset potrebbe avere campi diversi
+        # MAPPING CORRETTO basato sul JSON reale:
+        # "id": "MU159644"
+        # "nrInventario": "77445"
+        # "oggetto": "anello/ digitale"
+        # "materiaTecnicas": ["oro/ laminatura"]
+        # "cronologias": ["sec. I d.C."]
+        # "modelli3D_hr": ["http://opendata-ercolano.cultura.gov.it/pub/modelli_3d_hr/77445.zip"]
 
-        # Prova a mappare campi comuni
-        asset_id = str(record.get("id", record.get("ID", record.get("identifier", ""))))
+        asset_id = str(record.get("id", ""))
 
-        # Nome - prova diverse varianti
-        name_fields = ["nome", "name", "title", "titolo", "denominazione", "oggetto"]
-        name = ""
-        for field in name_fields:
-            if field in record and record[field]:
-                name = str(record[field])
-                break
+        # Numero inventario (CAMPO CORRETTO)
+        inventory_number = str(record.get("nrInventario", ""))
 
-        # Numero inventario
-        inventory_fields = ["numero_inventario", "nrInventario", "inventario", "inventory_number", "inv_num"]
-        inventory_number = ""
-        for field in inventory_fields:
-            if field in record and record[field]:
-                inventory_number = str(record[field])
-                break
+        # Tipo oggetto (CAMPO CORRETTO)
+        object_type = str(record.get("oggetto", ""))
 
-        # Tipo oggetto
-        type_fields = ["tipo", "type", "oggetto", "categoria", "category"]
-        object_type = ""
-        for field in type_fields:
-            if field in record and record[field]:
-                object_type = str(record[field])
-                break
+        # Nome descrittivo
+        name = record.get("descrizione", "")
+        if not name and inventory_number and object_type:
+            name = f"{inventory_number} - {object_type}"
+        elif not name and inventory_number:
+            name = inventory_number
+        elif not name and object_type:
+            name = object_type
+        else:
+            name = f"Asset {asset_id}"
 
         # Descrizione
-        desc_fields = ["descrizione", "description", "desc", "note"]
-        description = ""
-        for field in desc_fields:
-            if field in record and record[field]:
-                description = str(record[field])
-                break
+        description = str(record.get("descrizione", ""))
 
-        # Materiali
-        material_fields = ["materiale", "materiali", "material", "materials", "materiaTecnicas"]
+        # Materiali (CAMPO CORRETTO)
         materials = []
-        for field in material_fields:
-            if field in record and record[field]:
-                mat = record[field]
-                if isinstance(mat, list):
-                    materials = [str(m) for m in mat]
-                else:
-                    materials = [str(mat)]
-                break
+        material_data = record.get("materiaTecnicas", [])
+        if isinstance(material_data, list):
+            materials = [str(m).strip() for m in material_data if m]
+        elif isinstance(material_data, str):
+            materials = [material_data.strip()] if material_data.strip() else []
 
-        # Cronologia
-        chrono_fields = ["cronologia", "chronology", "periodo", "period", "datazione", "dating", "cronologias"]
+        # Cronologia (CAMPO CORRETTO)
         chronology = []
-        for field in chrono_fields:
-            if field in record and record[field]:
-                chron = record[field]
-                if isinstance(chron, list):
-                    chronology = [str(c) for c in chron]
-                else:
-                    chronology = [str(chron)]
-                break
+        chronology_data = record.get("cronologias", [])
+        if isinstance(chronology_data, list):
+            chronology = [str(c).strip() for c in chronology_data if c]
+        elif isinstance(chronology_data, str):
+            chronology = [chronology_data.strip()] if chronology_data.strip() else []
 
-        # URLs modelli 3D
-        model_fields = ["modelli_3d", "model_3d", "model_url", "file_url", "download_url", "modelli3D_hr"]
+        # URLs modelli 3D (CAMPO CORRETTO)
         model_urls = []
-        for field in model_fields:
-            if field in record and record[field]:
-                urls = record[field]
-                if isinstance(urls, list):
-                    model_urls = [str(url) for url in urls if url]
-                else:
-                    model_urls = [str(urls)]
-                break
+        model_data = record.get("modelli3D_hr", [])
+        if isinstance(model_data, list):
+            model_urls = [str(url).strip() for url in model_data if url and str(url).strip()]
+        elif isinstance(model_data, str) and model_data.strip():
+            model_urls = [model_data.strip()]
 
         # Provenienza
-        prov_fields = ["provenienza", "provenance", "luogo", "location", "sito", "site"]
-        provenance = ""
-        for field in prov_fields:
-            if field in record and record[field]:
-                provenance = str(record[field])
-                break
+        provenance = str(record.get("provenienza", "N/D"))
 
-        # Costruisci nome display
-        if inventory_number and object_type:
-            display_name = f"{inventory_number} - {object_type}"
-        elif inventory_number:
-            display_name = inventory_number
-        elif name:
-            display_name = name
-        elif object_type:
-            display_name = object_type
-        else:
-            display_name = f"Asset {asset_id}"
+        # Nome inventario
+        nome_inventario = str(record.get("nomeInventario", ""))
 
-        # Calcola qualità e informazioni file
-        quality_score = self.calculate_quality_score_new(record, {
+        # Link dettaglio e ICCD
+        detail_url = str(record.get("linkDettaglio", ""))
+        catalog_url = str(record.get("linkICCD", ""))
+
+        # Calcola qualità basata sui dati reali
+        quality_score = self.calculate_quality_score_updated(record, {
             'name': bool(name),
             'description': bool(description),
             'materials': bool(materials),
             'chronology': bool(chronology),
             'model_urls': bool(model_urls),
-            'inventory_number': bool(inventory_number)
+            'inventory_number': bool(inventory_number),
+            'detail_url': bool(detail_url)
         })
 
-        file_size = self.estimate_file_size_new(record)
+        # Stima dimensione file dai modelli
+        file_size = self.estimate_file_size_from_urls(model_urls)
 
         return {
             "id": asset_id,
-            "name": display_name,
+            "name": name,
             "description": description,
             "object_type": object_type,
             "materials": materials,
             "chronology": chronology,
             "inventory_number": inventory_number,
             "provenance": provenance,
-            "tags": ["Ercolano", "MAV"],
+            "tags": ["Ercolano", "MAV", nome_inventario] if nome_inventario else ["Ercolano", "MAV"],
             "model_urls": model_urls,
-            "thumbnail_url": "",  # Da implementare se disponibile
+            "thumbnail_url": "",  # Non disponibile nel JSON
             "license_info": self.license,
             "metadata": {
                 "source": "Ercolano OpenData",
+                "nome_inventario": nome_inventario,
+                "detail_url": detail_url,
+                "catalog_url": catalog_url,
                 "original_data": record
             },
-            "detail_url": self.dataset_page_url,
-            "catalog_url": "",
+            "detail_url": detail_url,
+            "catalog_url": catalog_url,
             "quality_score": quality_score,
             "has_textures": True,  # Assumiamo che i modelli abbiano texture
-            "file_format": "obj",
+            "file_format": "zip",  # I modelli sono in ZIP
             "file_size": file_size
         }
 
-    def calculate_quality_score_new(self, record: Dict[str, Any], parsed_fields: Dict[str, bool]) -> int:
-        """Calcola un punteggio di qualità per un record Ercolano"""
-        score = 0
+    def calculate_quality_score_updated(self, record: Dict[str, Any], parsed_fields: Dict[str, bool]) -> int:
+        """Calcola punteggio qualità aggiornato"""
+        score = 20  # Base score
 
-        # Punteggio base
-        score += 20
-
-        # Bonus per campi parsati correttamente
-        if parsed_fields.get('name'):
+        # Bonus per campi essenziali
+        if parsed_fields.get('inventory_number'):
             score += 15
-        if parsed_fields.get('description'):
+        if parsed_fields.get('name'):
+            score += 10
+        if parsed_fields.get('description') and len(record.get("descrizione", "")) > 20:
             score += 20
         if parsed_fields.get('materials'):
             score += 15
         if parsed_fields.get('chronology'):
-            score += 15
-        if parsed_fields.get('model_urls'):
-            score += 20
-        if parsed_fields.get('inventory_number'):
             score += 10
+        if parsed_fields.get('model_urls'):
+            score += 20  # Molto importante
+        if parsed_fields.get('detail_url'):
+            score += 5
 
-        # Bonus per campi aggiuntivi nel record originale
-        if len(record.keys()) > 5:
+        # Bonus per completezza descrizione
+        description = record.get("descrizione", "")
+        if len(description) > 50:
+            score += 5
+        if len(description) > 100:
             score += 5
 
         return min(score, 100)
 
-    def estimate_file_size_new(self, record: Dict[str, Any]) -> int:
-        """Stima la dimensione del file per un record (in KB)"""
-        # Se disponibile nel record, usa quello
-        size_fields = ["file_size", "size", "dimensione", "weight"]
-        for field in size_fields:
-            if field in record and record[field]:
-                try:
-                    return int(record[field])
-                except:
-                    pass
+    def estimate_file_size_from_urls(self, model_urls: List[str]) -> int:
+        """Stima dimensione file dai nomi degli URL"""
+        if not model_urls:
+            return 0
 
-        # Altrimenti usa stime basate sul tipo
-        object_type = str(record.get("tipo", record.get("oggetto", ""))).lower()
+        # Estrai numero inventario dall'URL per stimare dimensione
+        # es: "http://opendata-ercolano.cultura.gov.it/pub/modelli_3d_hr/77445.zip"
+        total_size = 0
+        for url in model_urls:
+            if url and ".zip" in url:
+                # Stima basata su pattern tipici dei modelli Ercolano
+                if "anello" in url.lower() or "77445" in url:
+                    total_size += 500  # KB per anelli
+                elif "fritillus" in url.lower() or "77028" in url:
+                    total_size += 800  # KB per fritillus
+                else:
+                    total_size += 1000  # KB default
 
-        size_estimates = {
-            "anello": 500,     # Oggetti piccoli
-            "moneta": 300,
-            "gemma": 200,
-            "vaso": 1500,      # Oggetti medi
-            "coppa": 1000,
-            "statua": 5000,    # Oggetti grandi
-            "rilievo": 3000,
-            "affresco": 2000
-        }
-
-        # Cerca corrispondenze parziali
-        for obj_type, size in size_estimates.items():
-            if obj_type in object_type:
-                return size
-
-        # Default per oggetti sconosciuti
-        return 1000
+        return total_size if total_size > 0 else 1000
 
     def get_asset_detail(self, asset_id: str) -> Dict[str, Any]:
         """Ottiene dettagli estesi per un asset specifico"""

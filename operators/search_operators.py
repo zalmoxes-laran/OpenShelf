@@ -19,12 +19,12 @@ class OPENSHELF_OT_search_assets(Operator):
 
     def execute(self, context):
         scene = context.scene
-        
+
         # Impedisci ricerche multiple simultanee
         if scene.openshelf_is_searching:
             self.report({'INFO'}, "Search already in progress")
             return {'CANCELLED'}
-        
+
         # Costruisci filtri
         filters = {
             'search': scene.openshelf_search_text,
@@ -33,15 +33,15 @@ class OPENSHELF_OT_search_assets(Operator):
             'chronology': scene.openshelf_filter_chronology,
             'inventory': scene.openshelf_filter_inventory,
         }
-        
+
         # Rimuovi filtri vuoti
         filters = {k: v for k, v in filters.items() if v.strip()}
-        
+
         # Controlla se ci sono criteri di ricerca
         if not filters:
             self.report({'WARNING'}, "Please enter search criteria")
             return {'CANCELLED'}
-        
+
         # Avvia ricerca in thread separato
         search_thread = threading.Thread(
             target=self._search_thread,
@@ -49,28 +49,28 @@ class OPENSHELF_OT_search_assets(Operator):
         )
         search_thread.daemon = True
         search_thread.start()
-        
+
         # Avvia timer per controllare progresso
         bpy.app.timers.register(
             lambda: self._check_search_progress(context),
             first_interval=0.1
         )
-        
+
         return {'FINISHED'}
-    
+
     def _search_thread(self, context, filters):
         """Thread per eseguire ricerca senza bloccare UI"""
         scene = context.scene
-        
+
         try:
             # Imposta stato ricerca
             scene.openshelf_is_searching = True
             scene.openshelf_status_message = "Searching..."
-            
+
             # Ottieni repository attivo
             repo_id = scene.openshelf_active_repository
             limit = scene.openshelf_search_limit
-            
+
             # Cerca negli asset
             if repo_id == 'all':
                 # Cerca in tutti i repository
@@ -85,29 +85,29 @@ class OPENSHELF_OT_search_assets(Operator):
                 if not repository:
                     scene.openshelf_status_message = f"Repository '{repo_id}' not found"
                     return
-                
+
                 results = repository.search_assets(
                     query=filters.get('search', ''),
                     filters=filters,
                     limit=limit
                 )
-            
+
             # Aggiorna risultati nella UI (thread-safe)
             self._update_search_results(scene, results, filters)
-            
+
         except Exception as e:
             print(f"OpenShelf: Search error: {e}")
             scene.openshelf_status_message = f"Search error: {str(e)}"
         finally:
             scene.openshelf_is_searching = False
-    
+
     def _update_search_results(self, scene, results, filters):
         """Aggiorna i risultati nella UI"""
         try:
             # Pulisci risultati precedenti
             scene.openshelf_search_results.clear()
             scene.openshelf_assets_cache.clear()
-            
+
             # Aggiungi nuovi risultati
             for asset in results:
                 # Aggiungi a cache
@@ -124,7 +124,7 @@ class OPENSHELF_OT_search_assets(Operator):
                 cache_item.thumbnail_url = asset.thumbnail_url
                 cache_item.license_info = asset.license_info
                 cache_item.quality_score = asset.quality_score
-                
+
                 # Aggiungi a risultati
                 result_item = scene.openshelf_search_results.add()
                 result_item.asset_id = asset.id
@@ -134,33 +134,46 @@ class OPENSHELF_OT_search_assets(Operator):
                 result_item.object_type = asset.object_type
                 result_item.inventory_number = asset.inventory_number
                 result_item.quality_score = asset.quality_score
-            
+
             # Aggiorna statistiche
             scene.openshelf_search_count = len(results)
             scene.openshelf_last_search = filters.get('search', '')
             scene.openshelf_last_repository = scene.openshelf_active_repository
-            
+
             # Aggiorna stato
             if results:
                 scene.openshelf_status_message = f"Found {len(results)} assets"
             else:
                 scene.openshelf_status_message = "No assets found"
-                
+
         except Exception as e:
             print(f"OpenShelf: Error updating search results: {e}")
             scene.openshelf_status_message = f"Error updating results: {str(e)}"
-    
+
+
     def _check_search_progress(self, context):
         """Controlla progresso ricerca (chiamato da timer)"""
-        scene = context.scene
-        
-        # Forza aggiornamento UI
-        for area in context.screen.areas:
-            if area.type == 'VIEW_3D':
-                area.tag_redraw()
-        
-        # Continua timer solo se ricerca in corso
-        return 0.1 if scene.openshelf_is_searching else None
+        try:
+            scene = context.scene
+
+            # Controlla se il context è ancora valido
+            if not scene:
+                return None
+
+            # Forza aggiornamento UI
+            for area in context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+
+            # Continua timer solo se ricerca in corso
+            return 0.1 if scene.openshelf_is_searching else None
+
+        except (ReferenceError, AttributeError):
+            # Se l'operatore è stato cancellato, ferma il timer
+            return None
+        except Exception as e:
+            print(f"OpenShelf: Timer error: {e}")
+            return None
 
 class OPENSHELF_OT_clear_search(Operator):
     """Pulisce i risultati di ricerca"""
@@ -171,34 +184,34 @@ class OPENSHELF_OT_clear_search(Operator):
 
     def execute(self, context):
         scene = context.scene
-        
+
         try:
             # Ferma ricerca in corso
             scene.openshelf_is_searching = False
-            
+
             # Pulisci campi ricerca
             scene.openshelf_search_text = ""
             scene.openshelf_filter_type = ""
             scene.openshelf_filter_material = ""
             scene.openshelf_filter_chronology = ""
             scene.openshelf_filter_inventory = ""
-            
+
             # Pulisci risultati
             scene.openshelf_search_results.clear()
             scene.openshelf_assets_cache.clear()
             scene.openshelf_search_count = 0
             scene.openshelf_last_search = ""
             scene.openshelf_last_repository = ""
-            
+
             # Reset stato
             scene.openshelf_status_message = "Ready"
-            
+
             self.report({'INFO'}, "Search cleared")
-            
+
         except Exception as e:
             print(f"OpenShelf: Error clearing search: {e}")
             self.report({'ERROR'}, f"Error clearing search: {str(e)}")
-        
+
         return {'FINISHED'}
 
 class OPENSHELF_OT_apply_filters(Operator):
@@ -207,34 +220,34 @@ class OPENSHELF_OT_apply_filters(Operator):
     bl_label = "Apply Filters"
     bl_description = "Apply filters to current search results"
     bl_options = {'REGISTER'}
-    
+
     filter_object_type: StringProperty(
         name="Object Type",
         description="Filter by object type",
         default=""
     )
-    
+
     filter_material: StringProperty(
         name="Material",
         description="Filter by material",
         default=""
     )
-    
+
     filter_chronology: StringProperty(
         name="Chronology",
         description="Filter by chronological period",
         default=""
     )
-    
+
     filter_inventory: StringProperty(
         name="Inventory Number",
         description="Filter by inventory number",
         default=""
     )
-    
+
     def execute(self, context):
         scene = context.scene
-        
+
         try:
             # Applica filtri ai risultati nella cache
             filters = {
@@ -243,12 +256,12 @@ class OPENSHELF_OT_apply_filters(Operator):
                 'chronology': self.filter_chronology,
                 'inventory': self.filter_inventory,
             }
-            
+
             # Rimuovi filtri vuoti
             filters = {k: v for k, v in filters.items() if v.strip()}
-            
+
             filtered_results = []
-            
+
             # Filtra risultati esistenti
             for cached_item in scene.openshelf_assets_cache:
                 # Ricostruisci asset per test filtri
@@ -258,7 +271,7 @@ class OPENSHELF_OT_apply_filters(Operator):
                     'chronology': cached_item.chronology.split(', ') if cached_item.chronology else [],
                     'inventory_number': cached_item.inventory_number,
                 }
-                
+
                 # Testa filtri
                 matches = True
                 for filter_key, filter_value in filters.items():
@@ -278,13 +291,13 @@ class OPENSHELF_OT_apply_filters(Operator):
                     elif filter_key == 'inventory' and filter_value.lower() not in asset_data['inventory_number'].lower():
                         matches = False
                         break
-                
+
                 if matches:
                     filtered_results.append(cached_item)
-            
+
             # Aggiorna risultati filtrati
             scene.openshelf_search_results.clear()
-            
+
             for result in filtered_results:
                 result_item = scene.openshelf_search_results.add()
                 result_item.asset_id = result.asset_id
@@ -294,19 +307,19 @@ class OPENSHELF_OT_apply_filters(Operator):
                 result_item.object_type = result.object_type
                 result_item.inventory_number = result.inventory_number
                 result_item.quality_score = result.quality_score
-            
+
             # Aggiorna statistiche
             scene.openshelf_search_count = len(filtered_results)
             scene.openshelf_status_message = f"Filtered to {len(filtered_results)} assets"
-            
+
             self.report({'INFO'}, f"Applied filters - {len(filtered_results)} assets shown")
-            
+
         except Exception as e:
             print(f"OpenShelf: Error applying filters: {e}")
             self.report({'ERROR'}, f"Error applying filters: {str(e)}")
-        
+
         return {'FINISHED'}
-    
+
     def invoke(self, context, event):
         # Popola filtri con valori correnti
         scene = context.scene
@@ -314,7 +327,7 @@ class OPENSHELF_OT_apply_filters(Operator):
         self.filter_material = scene.openshelf_filter_material
         self.filter_chronology = scene.openshelf_filter_chronology
         self.filter_inventory = scene.openshelf_filter_inventory
-        
+
         return context.window_manager.invoke_props_dialog(self)
 
 class OPENSHELF_OT_search_suggestions(Operator):
@@ -323,7 +336,7 @@ class OPENSHELF_OT_search_suggestions(Operator):
     bl_label = "Get Search Suggestions"
     bl_description = "Get search suggestions from repositories"
     bl_options = {'REGISTER'}
-    
+
     suggestion_type: StringProperty(
         name="Suggestion Type",
         description="Type of suggestions to get",
@@ -332,12 +345,12 @@ class OPENSHELF_OT_search_suggestions(Operator):
 
     def execute(self, context):
         scene = context.scene
-        
+
         try:
             # Ottieni repository attivo
             repo_id = scene.openshelf_active_repository
             suggestions = []
-            
+
             if repo_id == 'all':
                 # Ottieni suggerimenti da tutti i repository
                 for repo in RepositoryRegistry.get_all_repositories():
@@ -348,21 +361,21 @@ class OPENSHELF_OT_search_suggestions(Operator):
                 repository = RepositoryRegistry.get_repository(repo_id)
                 if repository:
                     suggestions = self._get_repo_suggestions(repository)
-            
+
             # Rimuovi duplicati e ordina
             suggestions = sorted(list(set(suggestions)))
-            
+
             # Salva suggerimenti (per ora solo stampa)
             print(f"OpenShelf: {self.suggestion_type} suggestions: {suggestions[:20]}")
-            
+
             self.report({'INFO'}, f"Found {len(suggestions)} {self.suggestion_type} suggestions")
-            
+
         except Exception as e:
             print(f"OpenShelf: Error getting suggestions: {e}")
             self.report({'ERROR'}, f"Error getting suggestions: {str(e)}")
-        
+
         return {'FINISHED'}
-    
+
     def _get_repo_suggestions(self, repository):
         """Ottiene suggerimenti da un repository"""
         try:
@@ -384,13 +397,13 @@ class OPENSHELF_OT_quick_search(Operator):
     bl_label = "Quick Search"
     bl_description = "Perform quick search with specified term"
     bl_options = {'REGISTER'}
-    
+
     search_term: StringProperty(
         name="Search Term",
         description="Term to search for",
         default=""
     )
-    
+
     search_field: StringProperty(
         name="Search Field",
         description="Field to search in",
@@ -399,11 +412,11 @@ class OPENSHELF_OT_quick_search(Operator):
 
     def execute(self, context):
         scene = context.scene
-        
+
         if not self.search_term:
             self.report({'ERROR'}, "No search term specified")
             return {'CANCELLED'}
-        
+
         try:
             # Imposta campo appropriato
             if self.search_field == "search":
@@ -414,14 +427,14 @@ class OPENSHELF_OT_quick_search(Operator):
                 scene.openshelf_filter_material = self.search_term
             elif self.search_field == "chronology":
                 scene.openshelf_filter_chronology = self.search_term
-            
+
             # Esegui ricerca
             bpy.ops.openshelf.search_assets()
-            
+
         except Exception as e:
             print(f"OpenShelf: Error in quick search: {e}")
             self.report({'ERROR'}, f"Quick search error: {str(e)}")
-        
+
         return {'FINISHED'}
 
 class OPENSHELF_OT_save_search(Operator):
@@ -430,7 +443,7 @@ class OPENSHELF_OT_save_search(Operator):
     bl_label = "Save Search"
     bl_description = "Save current search parameters"
     bl_options = {'REGISTER'}
-    
+
     search_name: StringProperty(
         name="Search Name",
         description="Name for this search",
@@ -439,7 +452,7 @@ class OPENSHELF_OT_save_search(Operator):
 
     def execute(self, context):
         scene = context.scene
-        
+
         try:
             # Salva parametri ricerca (per ora solo stampa)
             search_params = {
@@ -453,17 +466,17 @@ class OPENSHELF_OT_save_search(Operator):
                     'inventory': scene.openshelf_filter_inventory,
                 }
             }
-            
+
             print(f"OpenShelf: Saved search: {search_params}")
-            
+
             self.report({'INFO'}, f"Search '{self.search_name}' saved")
-            
+
         except Exception as e:
             print(f"OpenShelf: Error saving search: {e}")
             self.report({'ERROR'}, f"Error saving search: {str(e)}")
-        
+
         return {'FINISHED'}
-    
+
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 

@@ -8,7 +8,7 @@
       "type": "archaeological",
       "country": "Italy",
       "language": "it",
-      "base_url": "https://mude.cultura.gov.it",
+      "base_url": "https://opendata-ercolano.cultura.gov.it",
       "api_url": "https://opendata-ercolano.cultura.gov.it/dataset/55608c19-2406-419f-84db-fa3d0b9cd033/resource/64324e26-a659-4c96-8958-98dbc5ecd3a9/download/modelli_3d_hig_res.json",
       "full_api_url": "https://opendata-ercolano.cultura.gov.it/dataset/55608c19-2406-419f-84db-fa3d0b9cd033/resource/64324e26-a659-4c96-8958-98dbc5ecd3a9/download/modelli_3d_hig_res.json",
       "supported_formats": ["obj"],
@@ -17,7 +17,7 @@
       "default_license": "Unknown (Public Institution)",
       "institution": "Parco Archeologico di Ercolano",
       "contact_email": "",
-      "documentation_url": "",
+      "documentation_url": "https://opendata-ercolano.cultura.gov.it/dataset/modelli-3d-lr/resource/64324e26-a659-4c96-8958-98dbc5ecd3a9",
       "total_assets_approx": 2124,
       "update_frequency": "static",
       "data_quality": "high",
@@ -121,7 +121,8 @@
       "mosaico",
       "fibula",
       "gemma",
-      "sigillo"
+      "sigillo",
+      "fritillus"
     ],
     "material_types": [
       "oro",
@@ -184,6 +185,13 @@
         "filters": {
           "object_type": "moneta"
         }
+      },
+      {
+        "name": "Fritillus Objects",
+        "query": "fritillus",
+        "filters": {
+          "object_type": "fritillus"
+        }
       }
     ],
     "example_searches": [
@@ -192,7 +200,8 @@
       "moneta imperiale",
       "statua marmo",
       "lucerna bronzo",
-      "affresco pompeiano"
+      "affresco pompeiano",
+      "fritillus ceramica"
     ]
   },
   "ui_settings": {

@@ -265,7 +265,7 @@ class OPENSHELF_PT_import_panel(Panel):
                 progress_row.scale_y = 0.5
                 for i in range(10):
                     filled = i < (progress / 10)
-                    icon = 'SEQUENCE_COLOR_04' if filled else 'SEQUENCE_COLOR_01'
+                    icon = 'STRIP_COLOR_04' if filled else 'STRIP_COLOR_01'
                     progress_row.label(text="", icon=icon)
 
             # Pulsante cancella

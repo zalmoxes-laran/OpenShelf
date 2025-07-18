@@ -20,18 +20,18 @@ class OPENSHELF_OT_refresh_repositories(Operator):
         try:
             # Aggiorna registry
             RepositoryRegistry.refresh_all_repositories()
-            
+
             # Aggiorna UI
             for area in context.screen.areas:
                 if area.type == 'VIEW_3D':
                     area.tag_redraw()
-            
+
             self.report({'INFO'}, "Repositories refreshed")
-            
+
         except Exception as e:
             print(f"OpenShelf: Error refreshing repositories: {e}")
             self.report({'ERROR'}, f"Failed to refresh repositories: {str(e)}")
-        
+
         return {'FINISHED'}
 
 class OPENSHELF_OT_test_repository(Operator):
@@ -40,7 +40,7 @@ class OPENSHELF_OT_test_repository(Operator):
     bl_label = "Test Repository"
     bl_description = "Test connection to selected repository"
     bl_options = {'REGISTER'}
-    
+
     repository_name: StringProperty(
         name="Repository Name",
         description="Name of repository to test",
@@ -49,16 +49,16 @@ class OPENSHELF_OT_test_repository(Operator):
 
     def execute(self, context):
         scene = context.scene
-        
+
         # Usa repository selezionato se non specificato
         repo_name = self.repository_name
         if not repo_name:
             repo_name = scene.openshelf_active_repository
-        
+
         if not repo_name or repo_name == 'all':
             self.report({'ERROR'}, "Please select a specific repository to test")
             return {'CANCELLED'}
-        
+
         # Avvia test in thread separato
         test_thread = threading.Thread(
             target=self._test_repository_thread,
@@ -66,21 +66,21 @@ class OPENSHELF_OT_test_repository(Operator):
         )
         test_thread.daemon = True
         test_thread.start()
-        
+
         self.report({'INFO'}, f"Testing connection to {repo_name}...")
-        
+
         return {'FINISHED'}
-    
+
     def _test_repository_thread(self, context, repo_name):
         """Thread per testare repository"""
         scene = context.scene
-        
+
         try:
             scene.openshelf_status_message = f"Testing {repo_name}..."
-            
+
             # Testa connessione
             result = RepositoryRegistry.test_repository_connection(repo_name)
-            
+
             # Aggiorna stato
             if result['status'] == 'success':
                 scene.openshelf_status_message = f"✓ {repo_name}: {result['message']}"
@@ -91,7 +91,7 @@ class OPENSHELF_OT_test_repository(Operator):
             else:
                 scene.openshelf_status_message = f"✗ {repo_name}: {result['message']}"
                 print(f"OpenShelf: Repository test failed: {result}")
-                
+
         except Exception as e:
             scene.openshelf_status_message = f"✗ {repo_name}: Test error"
             print(f"OpenShelf: Repository test error: {e}")
@@ -102,7 +102,7 @@ class OPENSHELF_OT_repository_info(Operator):
     bl_label = "Repository Info"
     bl_description = "Show detailed information about repository"
     bl_options = {'REGISTER'}
-    
+
     repository_name: StringProperty(
         name="Repository Name",
         description="Name of repository to show info for",
@@ -111,24 +111,24 @@ class OPENSHELF_OT_repository_info(Operator):
 
     def execute(self, context):
         scene = context.scene
-        
+
         # Usa repository selezionato se non specificato
         repo_name = self.repository_name
         if not repo_name:
             repo_name = scene.openshelf_active_repository
-        
+
         if not repo_name or repo_name == 'all':
             self.report({'ERROR'}, "Please select a specific repository")
             return {'CANCELLED'}
-        
+
         try:
             # Ottieni informazioni repository
             repo_info = RepositoryRegistry.get_repository_info(repo_name)
-            
+
             if 'error' in repo_info:
                 self.report({'ERROR'}, repo_info['error'])
                 return {'CANCELLED'}
-            
+
             # Mostra informazioni in popup
             def draw_info_popup(self, context):
                 layout = self.layout
@@ -142,17 +142,17 @@ class OPENSHELF_OT_repository_info(Operator):
                 layout.label(text="Supported Formats:")
                 for fmt in repo_info['supported_formats']:
                     layout.label(text=f"  • {fmt.upper()}")
-            
+
             context.window_manager.popup_menu(
-                draw_info_popup, 
-                title=f"{repo_name} Information", 
+                draw_info_popup,
+                title=f"{repo_name} Information",
                 icon='INFO'
             )
-            
+
         except Exception as e:
             print(f"OpenShelf: Error getting repository info: {e}")
             self.report({'ERROR'}, f"Error getting repository info: {str(e)}")
-        
+
         return {'FINISHED'}
 
 class OPENSHELF_OT_repository_statistics(Operator):
@@ -170,60 +170,166 @@ class OPENSHELF_OT_repository_statistics(Operator):
         )
         stats_thread.daemon = True
         stats_thread.start()
-        
+
         self.report({'INFO'}, "Collecting repository statistics...")
-        
+
         return {'FINISHED'}
-    
+
     def _collect_statistics_thread(self, context):
         """Thread per raccogliere statistiche"""
         scene = context.scene
-        
+
         try:
             scene.openshelf_status_message = "Collecting statistics..."
-            
+
             # Ottieni statistiche
             stats = RepositoryRegistry.get_repository_statistics()
-            
-            # Mostra statistiche (per ora solo stampa)
-            print("OpenShelf: Repository Statistics")
-            print(f"Total repositories: {stats['total_repositories']}")
-            
-            for repo_name, repo_stats in stats['repositories'].items():
-                print(f"\n{repo_name}:")
-                if 'error' in repo_stats:
-                    print(f"  Error: {repo_stats['error']}")
-                else:
-                    print(f"  Total assets: {repo_stats.get('total_assets', 'Unknown')}")
-                    print(f"  Assets with 3D: {repo_stats.get('assets_with_3d', 'Unknown')}")
-                    
-                    # Mostra top 5 tipi oggetto
-                    object_types = repo_stats.get('object_types', {})
-                    if object_types:
-                        print("  Top object types:")
-                        sorted_types = sorted(object_types.items(), key=lambda x: x[1], reverse=True)
-                        for obj_type, count in sorted_types[:5]:
-                            print(f"    {obj_type}: {count}")
-            
-            scene.openshelf_status_message = "Statistics collected - check console"
-            
+
+            # Salva statistiche in una variabile temporanea per il popup
+            self.collected_stats = stats
+
+            # Mostra popup con statistiche - deve essere chiamato dal main thread
+            bpy.app.timers.register(
+                lambda: self._show_statistics_popup(context),
+                first_interval=0.1
+            )
+
+            scene.openshelf_status_message = "Statistics collected"
+
         except Exception as e:
             scene.openshelf_status_message = f"Statistics error: {str(e)}"
             print(f"OpenShelf: Statistics error: {e}")
 
+    def _show_statistics_popup(self, context):
+        """Mostra popup con statistiche"""
+        try:
+            if not hasattr(self, 'collected_stats'):
+                return None
+
+            stats = self.collected_stats
+
+            def draw_statistics_popup(popup_self, popup_context):
+                layout = popup_self.layout
+                layout.label(text="Repository Statistics", icon='GRAPH')
+                layout.separator()
+
+                # Statistiche generali
+                box = layout.box()
+                box.label(text="General", icon='INFO')
+                box.label(text=f"Total repositories: {stats['total_repositories']}")
+
+                # Statistiche per repository
+                for repo_name, repo_stats in stats['repositories'].items():
+                    box = layout.box()
+                    box.label(text=f"Repository: {repo_name}", icon='BOOKMARKS')
+
+                    if 'error' in repo_stats:
+                        box.label(text=f"Error: {repo_stats['error']}", icon='ERROR')
+                        continue
+
+                    # Informazioni base
+                    col = box.column(align=True)
+                    col.scale_y = 0.8
+                    col.label(text=f"Total assets: {repo_stats.get('total_assets', 'Unknown')}")
+                    col.label(text=f"Assets with 3D: {repo_stats.get('assets_with_3d', 'Unknown')}")
+                    col.label(text=f"Assets with textures: {repo_stats.get('assets_with_textures', 'Unknown')}")
+
+                    # Qualità media
+                    if repo_stats.get('avg_quality_score', 0) > 0:
+                        col.label(text=f"Avg quality: {repo_stats['avg_quality_score']}%")
+
+                    # Dimensione file media
+                    if repo_stats.get('avg_file_size_kb', 0) > 0:
+                        size_mb = repo_stats['avg_file_size_kb'] / 1024
+                        col.label(text=f"Avg file size: {size_mb:.1f} MB")
+
+                    # Top tipi oggetto
+                    object_types = repo_stats.get('object_types', {})
+                    if object_types:
+                        col.separator()
+                        col.label(text="Top object types:")
+                        for obj_type, count in list(object_types.items())[:5]:
+                            col.label(text=f"  • {obj_type}: {count}")
+
+                        total_types = repo_stats.get('object_types_total', len(object_types))
+                        if total_types > 5:
+                            col.label(text=f"  ... and {total_types - 5} more types")
+
+                    # Top materiali
+                    materials = repo_stats.get('materials', {})
+                    if materials:
+                        col.separator()
+                        col.label(text="Top materials:")
+                        for material, count in list(materials.items())[:3]:
+                            col.label(text=f"  • {material}: {count}")
+
+                        total_materials = repo_stats.get('materials_total', len(materials))
+                        if total_materials > 3:
+                            col.label(text=f"  ... and {total_materials - 3} more materials")
+
+                    # Top cronologie
+                    chronologies = repo_stats.get('chronologies', {})
+                    if chronologies:
+                        col.separator()
+                        col.label(text="Top periods:")
+                        for period, count in list(chronologies.items())[:3]:
+                            col.label(text=f"  • {period}: {count}")
+
+                        total_periods = repo_stats.get('chronologies_total', len(chronologies))
+                        if total_periods > 3:
+                            col.label(text=f"  ... and {total_periods - 3} more periods")
+
+            # Mostra popup grande
+            context.window_manager.popup_menu(
+                draw_statistics_popup,
+                title="Repository Statistics",
+                icon='GRAPH'
+            )
+
+            # Stampa anche in console per backup
+            self._print_console_stats(stats)
+
+        except Exception as e:
+            print(f"OpenShelf: Error showing statistics popup: {e}")
+
+        return None  # Non ripetere il timer
+
+    def _print_console_stats(self, stats):
+        """Stampa statistiche in console come backup"""
+        print("\n" + "="*50)
+        print("OpenShelf: Repository Statistics")
+        print("="*50)
+        print(f"Total repositories: {stats['total_repositories']}")
+
+        for repo_name, repo_stats in stats['repositories'].items():
+            print(f"\n{repo_name}:")
+            if 'error' in repo_stats:
+                print(f"  Error: {repo_stats['error']}")
+            else:
+                print(f"  Total assets: {repo_stats.get('total_assets', 'Unknown')}")
+                print(f"  Assets with 3D: {repo_stats.get('assets_with_3d', 'Unknown')}")
+
+                # Top 5 tipi oggetto
+                object_types = repo_stats.get('object_types', {})
+                if object_types:
+                    print("  Top object types:")
+                    for obj_type, count in list(object_types.items())[:5]:
+                        print(f"    {obj_type}: {count}")
+
+        print("="*50)
 class OPENSHELF_OT_clear_repository_cache(Operator):
     """Pulisce la cache di un repository"""
     bl_idname = "openshelf.clear_repository_cache"
     bl_label = "Clear Repository Cache"
     bl_description = "Clear cache for selected repository"
     bl_options = {'REGISTER'}
-    
+
     repository_name: StringProperty(
         name="Repository Name",
         description="Name of repository to clear cache for",
         default=""
     )
-    
+
     confirm: BoolProperty(
         name="Confirm",
         description="Confirm cache clearing",
@@ -232,16 +338,16 @@ class OPENSHELF_OT_clear_repository_cache(Operator):
 
     def execute(self, context):
         scene = context.scene
-        
+
         if not self.confirm:
             self.report({'ERROR'}, "Cache clearing not confirmed")
             return {'CANCELLED'}
-        
+
         # Usa repository selezionato se non specificato
         repo_name = self.repository_name
         if not repo_name:
             repo_name = scene.openshelf_active_repository
-        
+
         try:
             if repo_name == 'all':
                 # Pulisci cache di tutti i repository
@@ -251,13 +357,13 @@ class OPENSHELF_OT_clear_repository_cache(Operator):
                 # Pulisci cache repository specifico
                 RepositoryRegistry.refresh_repository(repo_name)
                 self.report({'INFO'}, f"Cleared cache for {repo_name}")
-                
+
         except Exception as e:
             print(f"OpenShelf: Error clearing cache: {e}")
             self.report({'ERROR'}, f"Error clearing cache: {str(e)}")
-        
+
         return {'FINISHED'}
-    
+
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 
@@ -267,7 +373,7 @@ class OPENSHELF_OT_export_repository_config(Operator):
     bl_label = "Export Repository Config"
     bl_description = "Export repository configuration to file"
     bl_options = {'REGISTER'}
-    
+
     filepath: StringProperty(
         name="File Path",
         description="Path to save configuration file",
@@ -279,20 +385,20 @@ class OPENSHELF_OT_export_repository_config(Operator):
         try:
             # Esporta configurazione
             config = RepositoryRegistry.export_config()
-            
+
             # Salva su file
             import json
             with open(self.filepath, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
-            
+
             self.report({'INFO'}, f"Configuration exported to {self.filepath}")
-            
+
         except Exception as e:
             print(f"OpenShelf: Error exporting config: {e}")
             self.report({'ERROR'}, f"Error exporting config: {str(e)}")
-        
+
         return {'FINISHED'}
-    
+
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
@@ -303,25 +409,25 @@ class OPENSHELF_OT_add_custom_repository(Operator):
     bl_label = "Add Custom Repository"
     bl_description = "Add a custom repository configuration"
     bl_options = {'REGISTER'}
-    
+
     repo_name: StringProperty(
         name="Repository Name",
         description="Name for the custom repository",
         default="My Repository"
     )
-    
+
     repo_url: StringProperty(
         name="Repository URL",
         description="Base URL for the repository",
         default="https://example.com"
     )
-    
+
     repo_description: StringProperty(
         name="Description",
         description="Repository description",
         default="Custom repository"
     )
-    
+
     api_url: StringProperty(
         name="API URL",
         description="API endpoint URL",
@@ -332,7 +438,7 @@ class OPENSHELF_OT_add_custom_repository(Operator):
         if not self.repo_name or not self.repo_url:
             self.report({'ERROR'}, "Name and URL are required")
             return {'CANCELLED'}
-        
+
         try:
             # Valida configurazione
             config = {
@@ -341,26 +447,26 @@ class OPENSHELF_OT_add_custom_repository(Operator):
                 'description': self.repo_description,
                 'api_url': self.api_url or self.repo_url
             }
-            
+
             validation = RepositoryRegistry.validate_repository_config(config)
-            
+
             if not validation['valid']:
                 error_msg = '; '.join(validation['errors'])
                 self.report({'ERROR'}, f"Invalid configuration: {error_msg}")
                 return {'CANCELLED'}
-            
+
             # TODO: Implementare registrazione repository custom
             # Per ora solo mostra configurazione
             print(f"OpenShelf: Custom repository config: {config}")
-            
+
             self.report({'INFO'}, f"Custom repository configuration ready: {self.repo_name}")
-            
+
         except Exception as e:
             print(f"OpenShelf: Error adding custom repository: {e}")
             self.report({'ERROR'}, f"Error adding custom repository: {str(e)}")
-        
+
         return {'FINISHED'}
-    
+
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 
@@ -375,7 +481,7 @@ class OPENSHELF_OT_registry_status(Operator):
         try:
             # Ottieni stato registry
             status = RepositoryRegistry.get_status()
-            
+
             # Mostra stato in popup
             def draw_status_popup(self, context):
                 layout = self.layout
@@ -387,17 +493,17 @@ class OPENSHELF_OT_registry_status(Operator):
                 layout.label(text="Available repositories:")
                 for repo_name in status['available_repositories']:
                     layout.label(text=f"  • {repo_name}")
-            
+
             context.window_manager.popup_menu(
-                draw_status_popup, 
-                title="Registry Status", 
+                draw_status_popup,
+                title="Registry Status",
                 icon='INFO'
             )
-            
+
         except Exception as e:
             print(f"OpenShelf: Error getting registry status: {e}")
             self.report({'ERROR'}, f"Error getting registry status: {str(e)}")
-        
+
         return {'FINISHED'}
 
 # Lista operatori da registrare
