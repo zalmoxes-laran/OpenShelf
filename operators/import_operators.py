@@ -99,7 +99,7 @@ class OPENSHELF_OT_import_asset(Operator):
         return {'FINISHED'}
 
     def _import_thread(self, context, asset_data):
-        """Thread per eseguire import senza bloccare UI - VERSIONE MIGLIORATA"""
+        """Thread per eseguire SOLO download - Import nel main thread"""
         scene = context.scene
 
         try:
@@ -114,14 +114,13 @@ class OPENSHELF_OT_import_asset(Operator):
                 scene.openshelf_status_message = f"Repository '{asset_data.repository}' not available"
                 return
 
-            # PARSING URL MIGLIORATO - MULTIPLE STRATEGIE
+            # PARSING URL (stesso codice di prima)
             model_urls = []
 
             print(f"OpenShelf: Parsing URLs for asset {asset_data.asset_id}")
             print(f"OpenShelf: Raw model_urls: {repr(asset_data.model_urls)}")
 
             if asset_data.model_urls:
-                # Strategia 1: Prova JSON parsing
                 try:
                     parsed = json.loads(asset_data.model_urls)
                     if isinstance(parsed, list):
@@ -129,55 +128,23 @@ class OPENSHELF_OT_import_asset(Operator):
                         print(f"OpenShelf: JSON parsing successful: {model_urls}")
                     elif isinstance(parsed, str):
                         model_urls = [parsed.strip()] if parsed.strip() else []
-                        print(f"OpenShelf: JSON parsing single string: {model_urls}")
                 except json.JSONDecodeError as e:
                     print(f"OpenShelf: JSON parsing failed: {e}")
+                    # Fallback methods...
 
-                    # Strategia 2: Prova eval() sicuro (solo per liste Python)
-                    try:
-                        if asset_data.model_urls.strip().startswith('[') and asset_data.model_urls.strip().endswith(']'):
-                            # È una stringa repr di lista Python
-                            import ast
-                            parsed = ast.literal_eval(asset_data.model_urls)
-                            if isinstance(parsed, list):
-                                model_urls = [str(url).strip() for url in parsed if url]
-                                print(f"OpenShelf: Python list parsing successful: {model_urls}")
-                    except (ValueError, SyntaxError) as e:
-                        print(f"OpenShelf: Python list parsing failed: {e}")
-
-                        # Strategia 3: Fallback - tratta come stringa singola
-                        url_str = asset_data.model_urls.strip()
-                        # Rimuovi brackets se presenti
-                        if url_str.startswith('[') and url_str.endswith(']'):
-                            url_str = url_str[1:-1]
-                        # Rimuovi quotes se presenti
-                        if (url_str.startswith('"') and url_str.endswith('"')) or (url_str.startswith("'") and url_str.endswith("'")):
-                            url_str = url_str[1:-1]
-
-                        if url_str and url_str.startswith('http'):
-                            model_urls = [url_str]
-                            print(f"OpenShelf: Fallback parsing: {model_urls}")
-
-            # Verifica finale URLs
+            # Valida URLs
             valid_urls = []
             for url in model_urls:
                 if url and isinstance(url, str) and url.strip():
                     clean_url = url.strip()
                     if clean_url.startswith('http'):
                         valid_urls.append(clean_url)
-                        print(f"OpenShelf: Valid URL found: {clean_url}")
-                    else:
-                        print(f"OpenShelf: Invalid URL skipped: {clean_url}")
 
             if not valid_urls:
                 scene.openshelf_status_message = "No valid 3D model URLs found"
-                print(f"OpenShelf: ERROR - No valid URLs for asset {asset_data.asset_id}")
-                print(f"OpenShelf: Original data: {repr(asset_data.model_urls)}")
                 return
 
-            print(f"OpenShelf: Found {len(valid_urls)} valid URLs to try")
-
-            # Scarica primo modello disponibile
+            # SOLO DOWNLOAD NEL THREAD
             download_manager = get_download_manager()
             archive_path = None
 
@@ -185,10 +152,9 @@ class OPENSHELF_OT_import_asset(Operator):
                 print(f"OpenShelf: Trying download {i+1}/{len(valid_urls)}: {model_url}")
                 scene.openshelf_status_message = f"Downloading from {model_url}..."
 
-                # Callback per progresso download
                 def progress_callback(downloaded, total):
                     if total > 0:
-                        progress = int((downloaded / total) * 50)  # 50% per download
+                        progress = int((downloaded / total) * 80)  # 80% per download
                         scene.openshelf_download_progress = progress
 
                 archive_path = download_manager.download_file(
@@ -200,22 +166,18 @@ class OPENSHELF_OT_import_asset(Operator):
                 if archive_path:
                     print(f"OpenShelf: Download successful: {archive_path}")
                     break
-                else:
-                    print(f"OpenShelf: Download failed for URL: {model_url}")
 
             if not archive_path:
                 scene.openshelf_status_message = "Failed to download any asset"
-                print(f"OpenShelf: All download attempts failed for asset {asset_data.asset_id}")
                 return
 
-            # ... resto del codice di import rimane uguale ...
             # Estrai archivio
             scene.openshelf_status_message = "Extracting archive..."
-            scene.openshelf_download_progress = 60
+            scene.openshelf_download_progress = 85
 
             def extract_progress_callback(extracted, total):
                 if total > 0:
-                    progress = 60 + int((extracted / total) * 20)  # 20% per estrazione
+                    progress = 85 + int((extracted / total) * 10)  # 10% per estrazione
                     scene.openshelf_download_progress = progress
 
             extract_dir = download_manager.extract_archive(
@@ -229,7 +191,7 @@ class OPENSHELF_OT_import_asset(Operator):
 
             # Trova file 3D supportati
             scene.openshelf_status_message = "Finding 3D files..."
-            scene.openshelf_download_progress = 85
+            scene.openshelf_download_progress = 95
 
             supported_extensions = ['.obj', '.gltf', '.glb']
             found_files = download_manager.find_files_by_extension(extract_dir, supported_extensions)
@@ -238,12 +200,60 @@ class OPENSHELF_OT_import_asset(Operator):
                 scene.openshelf_status_message = "No supported 3D files found"
                 return
 
-            # Importa primo file trovato
-            model_path = found_files[0]
-            file_ext = os.path.splitext(model_path)[1].lower()
+            # SALVA DATI PER IMPORT NEL MAIN THREAD
+            scene.openshelf_download_progress = 100
+            scene.openshelf_status_message = "Download complete, preparing import..."
 
-            scene.openshelf_status_message = f"Importing {file_ext.upper()} model..."
-            scene.openshelf_download_progress = 90
+            # Prepara dati per import
+            import_data = {
+                'model_path': found_files[0],
+                'asset_data': asset_data,
+                'import_settings': {
+                    'import_scale': self.import_scale,
+                    'auto_center': self.auto_center,
+                    'apply_materials': self.apply_materials,
+                    'add_metadata': self.add_metadata
+                }
+            }
+
+            # Salva dati temporaneamente in una proprietà della scena
+            scene['openshelf_pending_import'] = str(import_data)
+
+            # PROGRAMMA IMPORT NEL MAIN THREAD usando timer Blender
+            bpy.app.timers.register(
+                lambda: self._do_import_in_main_thread(context),
+                first_interval=0.1
+            )
+
+        except Exception as e:
+            print(f"OpenShelf: Download error: {e}")
+            import traceback
+            traceback.print_exc()
+            scene.openshelf_status_message = f"Download error: {str(e)}"
+
+        # NON fermare is_downloading qui - lo farà l'import nel main thread
+
+    def _do_import_in_main_thread(self, context):
+        """Esegue l'import nel main thread - SICURO per bpy.context"""
+        scene = context.scene
+
+        try:
+            # Recupera dati import
+            if 'openshelf_pending_import' not in scene:
+                print("OpenShelf: No pending import data found")
+                return None
+
+            import_data_str = scene['openshelf_pending_import']
+            import_data = eval(import_data_str)  # Usa eval per semplicità (o json)
+
+            model_path = import_data['model_path']
+            asset_data = import_data['asset_data']
+            import_settings = import_data['import_settings']
+
+            scene.openshelf_status_message = "Importing 3D model..."
+
+            # Ora siamo nel main thread - bpy.context è disponibile!
+            file_ext = os.path.splitext(model_path)[1].lower()
 
             # Prepara dati asset per loader
             asset_dict = {
@@ -257,52 +267,25 @@ class OPENSHELF_OT_import_asset(Operator):
                 'chronology': asset_data.chronology.split(', ') if asset_data.chronology else [],
                 'license_info': asset_data.license_info,
                 'quality_score': asset_data.quality_score,
-                'model_urls': valid_urls,  # Usa URLs validati
-                'thumbnail_url': asset_data.thumbnail_url,
-                'metadata': {
-                    'import_scale': self.import_scale,
-                    'auto_center': self.auto_center,
-                    'apply_materials': self.apply_materials,
-                    'add_metadata': self.add_metadata
-                }
+                'metadata': import_settings
             }
 
-            # Importa con loader appropriato
+            # Import con loader appropriato
             imported_obj = None
 
             if file_ext == '.obj':
-                # Usa OBJLoader con parametri personalizzati
-                import_settings = {
-                    'scale_factor': self.import_scale,
-                    'auto_center': self.auto_center,
-                    'auto_materials': self.apply_materials,
-                    'recalculate_normals': True
-                }
-
                 imported_obj = OBJLoader.import_obj(model_path, **import_settings)
-
-                if imported_obj and self.add_metadata:
+                if imported_obj and import_settings['add_metadata']:
                     OBJLoader.apply_cultural_metadata(imported_obj, asset_dict)
 
             elif file_ext in ['.gltf', '.glb']:
-                # Usa GLTFLoader con parametri personalizzati
-                import_settings = {
-                    'scale_factor': self.import_scale,
-                    'auto_center': self.auto_center,
-                    'group_objects': True,
-                    'group_name': f"{asset_data.repository}_Import"
-                }
-
                 imported_obj = GLTFLoader.import_gltf(model_path, **import_settings)
-
-                if imported_obj and self.add_metadata:
-                    # Per GLTF, ottieni tutti gli oggetti importati
+                if imported_obj and import_settings['add_metadata']:
                     all_objects = [obj for obj in bpy.context.scene.objects if obj.get('openshelf_import_batch')]
                     GLTFLoader.apply_cultural_metadata(imported_obj, all_objects, asset_dict)
 
             # Finalizza import
             if imported_obj:
-                scene.openshelf_download_progress = 100
                 scene.openshelf_status_message = f"Successfully imported {asset_data.name}"
 
                 # Seleziona oggetto importato
@@ -310,19 +293,24 @@ class OPENSHELF_OT_import_asset(Operator):
                 imported_obj.select_set(True)
 
                 print(f"OpenShelf: Successfully imported {asset_data.name}")
-
             else:
                 scene.openshelf_status_message = "Failed to import 3D model"
 
         except Exception as e:
-            print(f"OpenShelf: Import error: {e}")
+            print(f"OpenShelf: Import error in main thread: {e}")
             import traceback
             traceback.print_exc()
             scene.openshelf_status_message = f"Import error: {str(e)}"
 
         finally:
+            # Pulisci
             scene.openshelf_is_downloading = False
             scene.openshelf_download_progress = 0
+            if 'openshelf_pending_import' in scene:
+                del scene['openshelf_pending_import']
+
+        # Non ripetere il timer
+        return None
 
     def _check_import_progress(self, context):
         """Controlla progresso import (chiamato da timer)"""
