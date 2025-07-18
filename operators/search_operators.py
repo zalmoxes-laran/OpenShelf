@@ -1,6 +1,7 @@
 """
-OpenShelf Search Operators
+OpenShelf Search Operators - VERSIONE CORRETTA
 Operatori per ricerca e filtri negli asset culturali
+FIX: Correzione serializzazione URL modelli 3D
 """
 
 import bpy
@@ -8,6 +9,7 @@ from bpy.types import Operator
 from bpy.props import StringProperty, BoolProperty, IntProperty
 import threading
 import time
+import json  # AGGIUNTO per serializzazione corretta
 from ..repositories.registry import RepositoryRegistry
 
 class OPENSHELF_OT_search_assets(Operator):
@@ -102,7 +104,7 @@ class OPENSHELF_OT_search_assets(Operator):
             scene.openshelf_is_searching = False
 
     def _update_search_results(self, scene, results, filters):
-        """Aggiorna i risultati nella UI"""
+        """Aggiorna i risultati nella UI - VERSIONE CORRETTA"""
         try:
             # Pulisci risultati precedenti
             scene.openshelf_search_results.clear()
@@ -120,12 +122,15 @@ class OPENSHELF_OT_search_assets(Operator):
                 cache_item.materials = ', '.join(asset.materials)
                 cache_item.chronology = ', '.join(asset.chronology)
                 cache_item.inventory_number = asset.inventory_number
-                cache_item.model_urls = str(asset.model_urls)  # Converti in stringa
+
+                # FIX PRINCIPALE: Usa json.dumps invece di str() per serializzare correttamente gli URL
+                cache_item.model_urls = json.dumps(asset.model_urls) if asset.model_urls else "[]"
+
                 cache_item.thumbnail_url = asset.thumbnail_url
                 cache_item.license_info = asset.license_info
                 cache_item.quality_score = asset.quality_score
 
-                # Aggiungi a risultati
+                # Aggiungi a risultati - MIGLIORATO: includi anche model_urls
                 result_item = scene.openshelf_search_results.add()
                 result_item.asset_id = asset.id
                 result_item.name = asset.name
@@ -135,6 +140,17 @@ class OPENSHELF_OT_search_assets(Operator):
                 result_item.inventory_number = asset.inventory_number
                 result_item.quality_score = asset.quality_score
 
+                # NUOVO: Includi anche gli URL nel result_item per debug
+                result_item.model_urls = json.dumps(asset.model_urls) if asset.model_urls else "[]"
+
+                # DEBUG: Stampa info per primi 3 asset
+                if len(results) <= 3 or results.index(asset) < 3:
+                    print(f"OpenShelf: Asset {asset.id}:")
+                    print(f"  - Name: {asset.name}")
+                    print(f"  - Model URLs (raw): {asset.model_urls}")
+                    print(f"  - Model URLs (JSON): {cache_item.model_urls}")
+                    print(f"  - First URL: {asset.model_urls[0] if asset.model_urls else 'None'}")
+
             # Aggiorna statistiche
             scene.openshelf_search_count = len(results)
             scene.openshelf_last_search = filters.get('search', '')
@@ -143,6 +159,9 @@ class OPENSHELF_OT_search_assets(Operator):
             # Aggiorna stato
             if results:
                 scene.openshelf_status_message = f"Found {len(results)} assets"
+                # DEBUG: Stampa info sui modelli 3D trovati
+                models_count = len([r for r in results if r.model_urls])
+                print(f"OpenShelf: {models_count}/{len(results)} assets have 3D models")
             else:
                 scene.openshelf_status_message = "No assets found"
 
@@ -306,6 +325,8 @@ class OPENSHELF_OT_apply_filters(Operator):
                 result_item.object_type = result.object_type
                 result_item.inventory_number = result.inventory_number
                 result_item.quality_score = result.quality_score
+                # NUOVO: Mantieni anche gli URL nei risultati filtrati
+                result_item.model_urls = result.model_urls
 
             # Aggiorna statistiche
             scene.openshelf_search_count = len(filtered_results)
@@ -479,6 +500,52 @@ class OPENSHELF_OT_save_search(Operator):
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 
+# NUOVO: Operatore di debug per testare URL
+class OPENSHELF_OT_debug_model_urls(Operator):
+    """Debug operatore per testare URL modelli"""
+    bl_idname = "openshelf.debug_model_urls"
+    bl_label = "Debug Model URLs"
+    bl_description = "Debug model URLs in cache"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        scene = context.scene
+
+        print("\n" + "="*50)
+        print("OpenShelf: DEBUG Model URLs")
+        print("="*50)
+
+        if not scene.openshelf_assets_cache:
+            print("No assets in cache")
+            self.report({'INFO'}, "No assets in cache to debug")
+            return {'FINISHED'}
+
+        for i, asset in enumerate(scene.openshelf_assets_cache):
+            print(f"\nAsset {i+1}: {asset.name}")
+            print(f"  - ID: {asset.asset_id}")
+            print(f"  - Repository: {asset.repository}")
+            print(f"  - model_urls (raw): {repr(asset.model_urls)}")
+
+            # Prova a fare il parsing
+            try:
+                if asset.model_urls:
+                    parsed_urls = json.loads(asset.model_urls)
+                    print(f"  - Parsed URLs: {parsed_urls}")
+                    print(f"  - Type: {type(parsed_urls)}")
+                    if parsed_urls:
+                        print(f"  - First URL: {parsed_urls[0]}")
+                else:
+                    print("  - No URLs")
+            except Exception as e:
+                print(f"  - ERROR parsing URLs: {e}")
+
+            if i >= 4:  # Limita output
+                break
+
+        print("="*50)
+        self.report({'INFO'}, f"Debugged {min(5, len(scene.openshelf_assets_cache))} assets")
+        return {'FINISHED'}
+
 # Lista operatori da registrare
 operators = [
     OPENSHELF_OT_search_assets,
@@ -487,6 +554,7 @@ operators = [
     OPENSHELF_OT_search_suggestions,
     OPENSHELF_OT_quick_search,
     OPENSHELF_OT_save_search,
+    OPENSHELF_OT_debug_model_urls,  # NUOVO
 ]
 
 def register():

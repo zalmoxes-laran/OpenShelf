@@ -99,7 +99,7 @@ class OPENSHELF_OT_import_asset(Operator):
         return {'FINISHED'}
 
     def _import_thread(self, context, asset_data):
-        """Thread per eseguire import senza bloccare UI"""
+        """Thread per eseguire import senza bloccare UI - VERSIONE MIGLIORATA"""
         scene = context.scene
 
         try:
@@ -114,21 +114,75 @@ class OPENSHELF_OT_import_asset(Operator):
                 scene.openshelf_status_message = f"Repository '{asset_data.repository}' not available"
                 return
 
-            # Parsa URLs modelli
-            try:
-                model_urls = json.loads(asset_data.model_urls) if asset_data.model_urls else []
-            except:
-                model_urls = [asset_data.model_urls] if asset_data.model_urls else []
+            # PARSING URL MIGLIORATO - MULTIPLE STRATEGIE
+            model_urls = []
 
-            if not model_urls:
-                scene.openshelf_status_message = "No 3D model URLs available"
+            print(f"OpenShelf: Parsing URLs for asset {asset_data.asset_id}")
+            print(f"OpenShelf: Raw model_urls: {repr(asset_data.model_urls)}")
+
+            if asset_data.model_urls:
+                # Strategia 1: Prova JSON parsing
+                try:
+                    parsed = json.loads(asset_data.model_urls)
+                    if isinstance(parsed, list):
+                        model_urls = [str(url).strip() for url in parsed if url]
+                        print(f"OpenShelf: JSON parsing successful: {model_urls}")
+                    elif isinstance(parsed, str):
+                        model_urls = [parsed.strip()] if parsed.strip() else []
+                        print(f"OpenShelf: JSON parsing single string: {model_urls}")
+                except json.JSONDecodeError as e:
+                    print(f"OpenShelf: JSON parsing failed: {e}")
+
+                    # Strategia 2: Prova eval() sicuro (solo per liste Python)
+                    try:
+                        if asset_data.model_urls.strip().startswith('[') and asset_data.model_urls.strip().endswith(']'):
+                            # È una stringa repr di lista Python
+                            import ast
+                            parsed = ast.literal_eval(asset_data.model_urls)
+                            if isinstance(parsed, list):
+                                model_urls = [str(url).strip() for url in parsed if url]
+                                print(f"OpenShelf: Python list parsing successful: {model_urls}")
+                    except (ValueError, SyntaxError) as e:
+                        print(f"OpenShelf: Python list parsing failed: {e}")
+
+                        # Strategia 3: Fallback - tratta come stringa singola
+                        url_str = asset_data.model_urls.strip()
+                        # Rimuovi brackets se presenti
+                        if url_str.startswith('[') and url_str.endswith(']'):
+                            url_str = url_str[1:-1]
+                        # Rimuovi quotes se presenti
+                        if (url_str.startswith('"') and url_str.endswith('"')) or (url_str.startswith("'") and url_str.endswith("'")):
+                            url_str = url_str[1:-1]
+
+                        if url_str and url_str.startswith('http'):
+                            model_urls = [url_str]
+                            print(f"OpenShelf: Fallback parsing: {model_urls}")
+
+            # Verifica finale URLs
+            valid_urls = []
+            for url in model_urls:
+                if url and isinstance(url, str) and url.strip():
+                    clean_url = url.strip()
+                    if clean_url.startswith('http'):
+                        valid_urls.append(clean_url)
+                        print(f"OpenShelf: Valid URL found: {clean_url}")
+                    else:
+                        print(f"OpenShelf: Invalid URL skipped: {clean_url}")
+
+            if not valid_urls:
+                scene.openshelf_status_message = "No valid 3D model URLs found"
+                print(f"OpenShelf: ERROR - No valid URLs for asset {asset_data.asset_id}")
+                print(f"OpenShelf: Original data: {repr(asset_data.model_urls)}")
                 return
+
+            print(f"OpenShelf: Found {len(valid_urls)} valid URLs to try")
 
             # Scarica primo modello disponibile
             download_manager = get_download_manager()
             archive_path = None
 
-            for model_url in model_urls:
+            for i, model_url in enumerate(valid_urls):
+                print(f"OpenShelf: Trying download {i+1}/{len(valid_urls)}: {model_url}")
                 scene.openshelf_status_message = f"Downloading from {model_url}..."
 
                 # Callback per progresso download
@@ -144,12 +198,17 @@ class OPENSHELF_OT_import_asset(Operator):
                 )
 
                 if archive_path:
+                    print(f"OpenShelf: Download successful: {archive_path}")
                     break
+                else:
+                    print(f"OpenShelf: Download failed for URL: {model_url}")
 
             if not archive_path:
-                scene.openshelf_status_message = "Failed to download asset"
+                scene.openshelf_status_message = "Failed to download any asset"
+                print(f"OpenShelf: All download attempts failed for asset {asset_data.asset_id}")
                 return
 
+            # ... resto del codice di import rimane uguale ...
             # Estrai archivio
             scene.openshelf_status_message = "Extracting archive..."
             scene.openshelf_download_progress = 60
@@ -198,7 +257,7 @@ class OPENSHELF_OT_import_asset(Operator):
                 'chronology': asset_data.chronology.split(', ') if asset_data.chronology else [],
                 'license_info': asset_data.license_info,
                 'quality_score': asset_data.quality_score,
-                'model_urls': model_urls,
+                'model_urls': valid_urls,  # Usa URLs validati
                 'thumbnail_url': asset_data.thumbnail_url,
                 'metadata': {
                     'import_scale': self.import_scale,
@@ -257,6 +316,8 @@ class OPENSHELF_OT_import_asset(Operator):
 
         except Exception as e:
             print(f"OpenShelf: Import error: {e}")
+            import traceback
+            traceback.print_exc()
             scene.openshelf_status_message = f"Import error: {str(e)}"
 
         finally:
