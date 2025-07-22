@@ -1,7 +1,8 @@
 """
-OpenShelf Search Operators - VERSIONE AGGIORNATA
+OpenShelf Search Operators - VERSIONE COMPLETA CORRETTA
 Operatori per ricerca e filtri negli asset culturali
-AGGIUNTO: OPENSHELF_OT_clear_filters
+FIX: Timer standalone per evitare ReferenceError
+AGGIUNTO: OPENSHELF_OT_clear_filters e tutti gli operatori completi
 """
 
 import bpy
@@ -11,6 +12,31 @@ import threading
 import time
 import json
 from ..repositories.registry import RepositoryRegistry
+
+# FUNZIONE STANDALONE PER TIMER (SOLUZIONE AL BUG)
+def _check_search_progress_standalone(context):
+    """Controlla progresso ricerca e aggiorna UI - STANDALONE"""
+    try:
+        scene = context.scene
+
+        # Controlla se il context è ancora valido
+        if not scene:
+            return None
+
+        # Forza aggiornamento UI
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+
+        # Continua timer solo se ricerca in corso
+        return 0.1 if getattr(scene, 'openshelf_is_searching', False) else None
+
+    except (ReferenceError, AttributeError):
+        return None
+    except Exception as e:
+        print(f"OpenShelf: Timer error: {e}")
+        return None
+
 
 class OPENSHELF_OT_search_assets(Operator):
     """Cerca asset nei repository"""
@@ -52,9 +78,9 @@ class OPENSHELF_OT_search_assets(Operator):
         search_thread.daemon = True
         search_thread.start()
 
-        # Avvia timer per controllare progresso
+        # FIX: USA FUNZIONE STANDALONE PER TIMER
         bpy.app.timers.register(
-            lambda: self._check_search_progress(context),
+            lambda: _check_search_progress_standalone(context),
             first_interval=0.1
         )
 
@@ -149,29 +175,6 @@ class OPENSHELF_OT_search_assets(Operator):
         except Exception as e:
             print(f"OpenShelf: Error updating search results: {e}")
             scene.openshelf_status_message = f"Error updating results: {str(e)}"
-
-    def _check_search_progress(self, context):
-        """Controlla progresso ricerca e aggiorna UI"""
-        try:
-            scene = context.scene
-
-            # Controlla se il context è ancora valido
-            if not scene:
-                return None
-
-            # Forza aggiornamento UI
-            for area in context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
-
-            # Continua timer solo se ricerca in corso
-            return 0.1 if scene.openshelf_is_searching else None
-
-        except (ReferenceError, AttributeError):
-            return None
-        except Exception as e:
-            print(f"OpenShelf: Timer error: {e}")
-            return None
 
 
 class OPENSHELF_OT_clear_search(Operator):
@@ -602,7 +605,7 @@ class OPENSHELF_OT_debug_model_urls(Operator):
 operators = [
     OPENSHELF_OT_search_assets,
     OPENSHELF_OT_clear_search,
-    OPENSHELF_OT_clear_filters,  # NUOVO OPERATORE AGGIUNTO
+    OPENSHELF_OT_clear_filters,
     OPENSHELF_OT_apply_filters,
     OPENSHELF_OT_search_suggestions,
     OPENSHELF_OT_quick_search,
