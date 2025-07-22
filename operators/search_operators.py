@@ -46,6 +46,14 @@ class OPENSHELF_OT_search_assets(Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
+
+        if hasattr(bpy.app, 'online_access') and not bpy.app.online_access:
+            if hasattr(bpy.app, 'online_access_overridden') and bpy.app.online_access_overridden:
+                self.report({'ERROR'}, "Online access disabled by command line. Use --online-mode to enable OpenShelf.")
+            else:
+                self.report({'ERROR'}, "Online access disabled. Enable 'Allow Online Access' in Preferences > System.")
+            return {'CANCELLED'}
+
         scene = context.scene
 
         # Impedisci ricerche multiple simultanee

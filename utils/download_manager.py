@@ -3,6 +3,7 @@ OpenShelf Download Manager - COMPLETE FIXED VERSION
 Gestisce download, cache e estrazione file per gli asset culturali
 """
 
+import bpy # type: ignore
 import os
 import tempfile
 import urllib.request
@@ -325,6 +326,10 @@ class DownloadManager:
         Returns:
             Path al file scaricato o None se errore
         """
+
+        if hasattr(bpy.app, 'online_access') and not bpy.app.online_access:
+            print("OpenShelf: Online access disabled in Blender preferences")
+            return None
 
         # Controlla cache
         if use_cache and self.cache.is_cached(url):

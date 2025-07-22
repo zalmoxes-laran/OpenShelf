@@ -3,11 +3,19 @@ OpenShelf Ercolano Repository
 Repository per gli asset 3D del Museo Archeologico Virtuale di Ercolano
 """
 
+import bpy # type: ignore
 import urllib.request
 import json
 import time
 from typing import List, Dict, Any
 from .base_repository import BaseRepository, CulturalAsset
+
+def check_online_access():
+    if not hasattr(bpy.app, 'online_access'):
+        return True
+    if not bpy.app.online_access:
+        raise Exception("Online access is disabled in Blender preferences")
+    return True
 
 class ErcolanoRepository(BaseRepository):
     """Repository per gli asset 3D di Ercolano"""
@@ -60,7 +68,11 @@ class ErcolanoRepository(BaseRepository):
 
     def fetch_assets(self, limit: int = 100) -> List[CulturalAsset]:
         """Scarica gli asset da Ercolano"""
-
+        try:
+            check_online_access()
+        except Exception as e:
+            print(f"OpenShelf: {e}")
+            return []
         # Determina se stiamo fetchando per statistiche (limit alto) o per UI normale
         is_stats_fetch = limit > 1000
         cache_key = f"ercolano_assets_all" if is_stats_fetch else f"ercolano_assets_{limit}"

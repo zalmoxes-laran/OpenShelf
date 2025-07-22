@@ -58,6 +58,20 @@ class OPENSHELF_PT_search_panel(Panel):
         layout = self.layout
         scene = context.scene
 
+        if hasattr(bpy.app, 'online_access') and not bpy.app.online_access:
+            box = layout.box()
+            box.alert = True
+            col = box.column(align=True)
+            col.scale_y = 0.8
+            col.label(text="⚠️ Online Access Disabled", icon='ERROR')
+            if hasattr(bpy.app, 'online_access_overridden') and bpy.app.online_access_overridden:
+                col.label(text="Disabled by command line")
+                col.label(text="Restart with --online-mode")
+            else:
+                col.label(text="Enable in Preferences > System")
+                col.label(text="'Allow Online Access'")
+            layout.separator()
+
         # Repository selection
         box = layout.box()
         box.label(text="Repository", icon='WORLD_DATA')
