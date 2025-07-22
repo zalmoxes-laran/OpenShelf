@@ -14,7 +14,7 @@ type = "add-on"
 website = "https://github.com/zalmoxes-laran/openshelf"
 
 # Optional: tag list defined by Blender and server
-tags = ["Import-Export", "3D View", "Archaeology", "Cultural Heritage", "Museum"]
+tags = ["Import-Export", "3D View"]
 
 blender_version_min = "4.2.0"
 
@@ -33,7 +33,7 @@ platforms = ["windows-x64", "macos-arm64", "linux-x64", "windows-arm64", "macos-
 
 # Optional: add-ons can list which resources they will require
 [permissions]
-network = "Download 3D models and metadata from cultural heritage repositories"
+network = "Download 3D models from cultural heritage repositories"
 files = "Import downloaded 3D models and cache repository data"
 
 # Optional: advanced build settings
