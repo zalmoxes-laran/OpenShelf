@@ -289,14 +289,6 @@ class OPENSHELF_PT_quick_actions(Panel):
         romano_op.search_term = "roman"
         romano_op.search_field = "search"
 
-        # Azioni repository
-        box = layout.box()
-        box.label(text="Repository Actions", icon='WORLD_DATA')
-
-        col = box.column(align=True)
-        col.operator("openshelf.repository_statistics", text="Statistics", icon='GRAPH')
-        col.operator("openshelf.registry_status", text="Registry Status", icon='INFO')
-
         # Gestione cache
         box = layout.box()
         box.label(text="Cache Management", icon='FILE_CACHE')

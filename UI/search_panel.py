@@ -1,10 +1,12 @@
 """
-OpenShelf Search Panel
-Pannello principale di ricerca nel viewport 3D
+OpenShelf Search Panel - VERSIONE RIORGANIZZATA
+Pannello principale per ricerca asset culturali
+UX IMPROVEMENT: Filtri spostati dopo i risultati per chiarezza del workflow
 """
 
 import bpy
 from bpy.types import Panel
+
 
 class OPENSHELF_PT_main_panel(Panel):
     """Pannello principale OpenShelf"""
@@ -41,8 +43,9 @@ class OPENSHELF_PT_main_panel(Panel):
         row.operator("openshelf.test_repository", text="Test", icon='CHECKMARK')
         row.operator("openshelf.repository_info", text="Info", icon='INFO')
 
+
 class OPENSHELF_PT_search_panel(Panel):
-    """Pannello di ricerca"""
+    """Pannello ricerca principale"""
     bl_label = "Search"
     bl_idname = "OPENSHELF_PT_search_panel"
     bl_space_type = 'VIEW_3D'
@@ -55,37 +58,26 @@ class OPENSHELF_PT_search_panel(Panel):
         layout = self.layout
         scene = context.scene
 
-        # Search box principale
+        # Repository selection
         box = layout.box()
-        box.label(text="Search Query", icon='VIEWZOOM')
+        box.label(text="Repository", icon='WORLD_DATA')
+        box.prop(scene, 'openshelf_active_repository', text="", icon='BOOKMARKS')
 
+        # SEZIONE 1: RICERCA PRINCIPALE (solo campo principale)
+        box = layout.box()
+        box.label(text="Search", icon='ZOOM_SELECTED')
+
+        # Campo ricerca principale
         col = box.column()
         col.prop(scene, 'openshelf_search_text', text="", icon='VIEWZOOM')
 
-        # Impostazioni ricerca
-        row = col.row()
-        row.prop(scene, 'openshelf_search_limit', text="Limit")
-        row.prop(scene, 'openshelf_auto_search', text="Auto")
-
-        # Filtri
-        box = layout.box()
-        box.label(text="Filters", icon='FILTER')
-
-        col = box.column()
-        col.prop(scene, 'openshelf_filter_type', text="Type", icon='OBJECT_DATA')
-        col.prop(scene, 'openshelf_filter_material', text="Material", icon='MATERIAL')
-        col.prop(scene, 'openshelf_filter_chronology', text="Period", icon='TIME')
-        col.prop(scene, 'openshelf_filter_inventory', text="Inventory", icon='LINENUMBERS_ON')
-
         # Bottoni azione ricerca
-        box = layout.box()
         row = box.row(align=True)
 
         # Disabilita ricerca se già in corso
         search_disabled = getattr(scene, 'openshelf_is_searching', False)
-
-        # Disabilita la riga se ricerca in corso
         row.enabled = not search_disabled
+
         row.operator("openshelf.search_assets", text="Search", icon='ZOOM_SELECTED')
         row.operator("openshelf.clear_search", text="Clear", icon='X')
 
@@ -94,11 +86,10 @@ class OPENSHELF_PT_search_panel(Panel):
             progress_box = layout.box()
             progress_box.label(text="Searching...", icon='TIME')
 
-        # Bottoni filtri avanzati
-        box = layout.box()
-        row = box.row(align=True)
-        row.operator("openshelf.apply_filters", text="Apply Filters", icon='FILTER')
-        row.operator("openshelf.save_search", text="Save", icon='FILE_TICK')
+        # Salva ricerca (se ha senso mantenerlo qui)
+        if scene.openshelf_search_text:
+            box.operator("openshelf.save_search", text="Save Search", icon='FILE_TICK')
+
 
 class OPENSHELF_PT_results_panel(Panel):
     """Pannello risultati ricerca"""
@@ -129,171 +120,165 @@ class OPENSHELF_PT_results_panel(Panel):
             if hasattr(scene, 'openshelf_last_search') and scene.openshelf_last_search:
                 box.label(text=f"Query: '{scene.openshelf_last_search}'", icon='VIEWZOOM')
 
-        # Lista risultati
-        if hasattr(scene, 'openshelf_search_results') and scene.openshelf_search_results:
+        # Lista risultati (se ci sono)
+        if hasattr(scene, 'openshelf_search_results') and len(scene.openshelf_search_results) > 0:
 
-            # Controlli batch
+            # Scrollable list per i risultati
             box = layout.box()
-            box.label(text="Batch Operations", icon='MODIFIER')
-            row = box.row(align=True)
-            row.operator("openshelf.batch_import", text="Import All", icon='IMPORT')
-            row.operator("openshelf.repository_statistics", text="Stats", icon='GRAPH')
+            box.label(text="Assets", icon='OUTLINER_COLLECTION')
 
-            # Risultati individuali
-            box = layout.box()
-            box.label(text="Individual Assets", icon='OBJECT_DATA')
+            # Template_list per risultati scorrevoli
+            col = box.column()
+            col.template_list(
+                "OPENSHELF_UL_search_results", "",
+                scene, "openshelf_search_results",
+                scene, "openshelf_selected_result_index",
+                rows=5
+            )
 
-            # Mostra primi N risultati
-            max_results = 15
-            results = scene.openshelf_search_results
+            # Azioni su risultato selezionato
+            if len(scene.openshelf_search_results) > 0:
+                selected_index = getattr(scene, 'openshelf_selected_result_index', 0)
+                if 0 <= selected_index < len(scene.openshelf_search_results):
+                    selected_result = scene.openshelf_search_results[selected_index]
 
-            for i, result in enumerate(results[:max_results]):
-                self.draw_result_item(box, result, i)
+                    actions_box = box.box()
+                    actions_row = actions_box.row(align=True)
 
-            # Mostra contatore se ci sono più risultati
-            if len(results) > max_results:
-                box.label(text=f"... and {len(results) - max_results} more assets")
-                box.operator("openshelf.clear_search", text="Clear to see all", icon='X')
+                    # Pulsante Import
+                    import_op = actions_row.operator("openshelf.import_asset", text="Import", icon='IMPORT')
+                    import_op.asset_id = selected_result.asset_id
+                    import_op.repository = selected_result.repository
 
-        else:
-            # Nessun risultato
-            box = layout.box()
-            box.label(text="No results", icon='INFO')
-            box.label(text="Try searching for cultural assets")
+                    # Pulsante Info
+                    info_op = actions_row.operator("openshelf.show_asset_info", text="Info", icon='INFO')
+                    info_op.asset_id = selected_result.asset_id
 
-    def draw_result_item(self, layout, result, index):
-        """Disegna un singolo risultato"""
 
-        # Container per risultato
-        box = layout.box()
-
-        # Header con nome e tipo
-        row = box.row()
-        col = row.column()
-        col.scale_y = 0.8
-
-        # Nome principale
-        name_text = result.name if result.name else f"Asset {result.asset_id}"
-        col.label(text=name_text[:45] + ("..." if len(name_text) > 45 else ""))
-
-        # Informazioni secondarie
-        info_parts = []
-        if result.object_type:
-            info_parts.append(result.object_type)
-        if result.inventory_number:
-            info_parts.append(f"#{result.inventory_number}")
-        if result.repository:
-            info_parts.append(f"({result.repository})")
-
-        if info_parts:
-            info_text = " • ".join(info_parts)
-            col.label(text=info_text[:50] + ("..." if len(info_text) > 50 else ""))
-
-        # Descrizione se disponibile
-        if result.description:
-            desc_text = result.description[:60] + ("..." if len(result.description) > 60 else "")
-            col.label(text=desc_text)
-
-        # Colonna pulsanti
-        col = row.column()
-        col.scale_x = 0.6
-
-        # Pulsante import principale
-        import_disabled = getattr(bpy.context.scene, 'openshelf_is_downloading', False)
-
-        # Disabilita pulsante se download in corso
-        import_col = col.column()
-        import_col.enabled = not import_disabled
-
-        import_op = import_col.operator("openshelf.import_asset", text="Import", icon='IMPORT')
-        import_op.asset_id = result.asset_id
-
-        # Pulsanti secondari
-        row = col.row(align=True)
-        row.scale_y = 0.7
-
-        preview_op = row.operator("openshelf.preview_asset", text="", icon='HIDE_OFF')
-        preview_op.asset_id = result.asset_id
-
-        validate_op = row.operator("openshelf.validate_asset", text="", icon='CHECKMARK')
-        validate_op.asset_id = result.asset_id
-
-        # Indicatore qualità
-        if result.quality_score > 0:
-            quality_color = 'GOOD' if result.quality_score >= 80 else 'WARNING' if result.quality_score >= 50 else 'ERROR'
-            quality_icon = 'CHECKMARK' if result.quality_score >= 80 else 'ERROR' if result.quality_score < 50 else 'QUESTION'
-
-            quality_row = box.row()
-            quality_row.scale_y = 0.7
-            quality_row.label(text=f"Quality: {result.quality_score}%", icon=quality_icon)
-
-class OPENSHELF_PT_import_panel(Panel):
-    """Pannello controlli import"""
-    bl_label = "Import Settings"
-    bl_idname = "OPENSHELF_PT_import_panel"
+class OPENSHELF_PT_filter_results_panel(Panel):
+    """Pannello filtri - SPOSTATO DOPO I RISULTATI"""
+    bl_label = "Filter Results"
+    bl_idname = "OPENSHELF_PT_filter_results_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 3
+    bl_order = 3  # DOPO i risultati
+    bl_options = {'DEFAULT_CLOSED'}  # Chiuso di default
+
+    def draw_header(self, context):
+        # Icona speciale per indicare che filtra i risultati esistenti
+        self.layout.label(icon='FILTER')
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
 
-        # Impostazioni import
+        # Mostra filtri solo se ci sono risultati da filtrare
+        if not hasattr(scene, 'openshelf_search_results') or len(scene.openshelf_search_results) == 0:
+            layout.label(text="No results to filter", icon='INFO')
+            layout.label(text="Run a search first")
+            return
+
+        # Descrizione chiara del comportamento
+        info_box = layout.box()
+        info_box.scale_y = 0.8
+        col = info_box.column(align=True)
+        col.label(text="Filter current results:", icon='INFO')
+        col.label(text="These filters work on")
+        col.label(text="the search results above")
+
+        # CAMPI FILTRO
         box = layout.box()
-        box.label(text="Import Options", icon='IMPORT')
+        box.label(text="Filter Criteria", icon='FILTER')
 
         col = box.column()
-        col.prop(scene, 'openshelf_import_scale', text="Scale %")
-        col.prop(scene, 'openshelf_auto_center', text="Auto Center")
-        col.prop(scene, 'openshelf_apply_materials', text="Apply Materials")
-        col.prop(scene, 'openshelf_add_metadata', text="Add Metadata")
+        col.prop(scene, 'openshelf_filter_type', text="Type", icon='OBJECT_DATA')
+        col.prop(scene, 'openshelf_filter_material', text="Material", icon='MATERIAL')
+        col.prop(scene, 'openshelf_filter_chronology', text="Period", icon='TIME')
+        col.prop(scene, 'openshelf_filter_inventory', text="Inventory", icon='LINENUMBERS_ON')
 
-        # Stato download
-        if hasattr(scene, 'openshelf_is_downloading') and scene.openshelf_is_downloading:
-            box = layout.box()
-            box.label(text="Download in Progress", icon='TIME')
+        # BOTTONI AZIONE FILTRI
+        actions_box = layout.box()
+        row = actions_box.row(align=True)
 
-            if hasattr(scene, 'openshelf_download_progress'):
-                progress = scene.openshelf_download_progress
-                box.label(text=f"Progress: {progress}%")
+        # Pulsante principale: "Filter Results" (rinominato da "Apply Filters")
+        filter_op = row.operator("openshelf.apply_filters", text="Filter Results", icon='FILTER')
 
-                # Barra progresso semplice
-                progress_row = box.row()
-                progress_row.scale_y = 0.5
-                for i in range(10):
-                    filled = i < (progress / 10)
-                    icon = 'STRIP_COLOR_04' if filled else 'STRIP_COLOR_01'
-                    progress_row.label(text="", icon=icon)
+        # Pulsante per pulire solo i filtri
+        clear_filters_op = row.operator("openshelf.clear_filters", text="Clear Filters", icon='X')
 
-            # Pulsante cancella
-            box.operator("openshelf.cancel_import", text="Cancel", icon='CANCEL')
+        # Informazioni sui filtri attivi
+        active_filters = []
+        if scene.openshelf_filter_type:
+            active_filters.append(f"Type: {scene.openshelf_filter_type}")
+        if scene.openshelf_filter_material:
+            active_filters.append(f"Material: {scene.openshelf_filter_material}")
+        if scene.openshelf_filter_chronology:
+            active_filters.append(f"Period: {scene.openshelf_filter_chronology}")
+        if scene.openshelf_filter_inventory:
+            active_filters.append(f"Inventory: {scene.openshelf_filter_inventory}")
 
-        # Cache info
-        box = layout.box()
-        box.label(text="Cache", icon='FILE_CACHE')
+        if active_filters:
+            info_box = layout.box()
+            info_box.label(text="Active Filters:", icon='FILTER')
+            col = info_box.column(align=True)
+            col.scale_y = 0.8
+            for filter_info in active_filters:
+                col.label(text=f"• {filter_info}")
 
-        # TODO: Mostra statistiche cache
-        row = box.row()
-        row.label(text="Cache: Active")
-        row.operator("openshelf.clear_repository_cache", text="Clear", icon='TRASH')
 
-# Lista pannelli da registrare
+# Lista per i risultati di ricerca (resta uguale)
+class OPENSHELF_UL_search_results(bpy.types.UIList):
+    """Lista UI per risultati ricerca"""
+    bl_idname = "OPENSHELF_UL_search_results"
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            # Icona tipo oggetto
+            type_icon = 'OBJECT_DATA'
+            if 'vaso' in item.object_type.lower():
+                type_icon = 'MESH_CYLINDER'
+            elif 'moneta' in item.object_type.lower() or 'anello' in item.object_type.lower():
+                type_icon = 'MESH_CIRCLE'
+            elif 'statua' in item.object_type.lower():
+                type_icon = 'OUTLINER_OB_ARMATURE'
+
+            # Nome principale
+            layout.label(text=item.name, icon=type_icon)
+
+            # Info aggiuntive in sub-row
+            sub = layout.row(align=True)
+            sub.scale_x = 0.7
+            sub.scale_y = 0.8
+
+            # Repository
+            sub.label(text=item.repository, icon='BOOKMARKS')
+
+            # Qualità se disponibile
+            if item.quality_score > 0:
+                sub.label(text=f"{item.quality_score}%", icon='QUALITY')
+
+        elif self.layout_type == 'GRID':
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon=type_icon)
+
+
+# Registrazione pannelli
 panels = [
-    OPENSHELF_PT_main_panel,
+    OPENSHELF_PT_main_panel,           # AGGIUNTO: Pannello principale
     OPENSHELF_PT_search_panel,
     OPENSHELF_PT_results_panel,
-    OPENSHELF_PT_import_panel,
+    OPENSHELF_PT_filter_results_panel,
+    OPENSHELF_UL_search_results,
 ]
 
 def register():
-    """Registra i pannelli di ricerca"""
+    """Registra i pannelli search"""
     for panel in panels:
         bpy.utils.register_class(panel)
 
 def unregister():
-    """Deregistra i pannelli di ricerca"""
+    """Deregistra i pannelli search"""
     for panel in reversed(panels):
         bpy.utils.unregister_class(panel)

@@ -1,7 +1,7 @@
 """
-OpenShelf Search Operators - VERSIONE CORRETTA
+OpenShelf Search Operators - VERSIONE AGGIORNATA
 Operatori per ricerca e filtri negli asset culturali
-FIX: Correzione serializzazione URL modelli 3D
+AGGIUNTO: OPENSHELF_OT_clear_filters
 """
 
 import bpy
@@ -9,7 +9,7 @@ from bpy.types import Operator
 from bpy.props import StringProperty, BoolProperty, IntProperty
 import threading
 import time
-import json  # AGGIUNTO per serializzazione corretta
+import json
 from ..repositories.registry import RepositoryRegistry
 
 class OPENSHELF_OT_search_assets(Operator):
@@ -104,7 +104,7 @@ class OPENSHELF_OT_search_assets(Operator):
             scene.openshelf_is_searching = False
 
     def _update_search_results(self, scene, results, filters):
-        """Aggiorna i risultati nella UI - VERSIONE CORRETTA"""
+        """Aggiorna i risultati nella UI"""
         try:
             # Pulisci risultati precedenti
             scene.openshelf_search_results.clear()
@@ -122,15 +122,11 @@ class OPENSHELF_OT_search_assets(Operator):
                 cache_item.materials = ', '.join(asset.materials)
                 cache_item.chronology = ', '.join(asset.chronology)
                 cache_item.inventory_number = asset.inventory_number
-
-                # FIX PRINCIPALE: Usa json.dumps invece di str() per serializzare correttamente gli URL
                 cache_item.model_urls = json.dumps(asset.model_urls) if asset.model_urls else "[]"
-
                 cache_item.thumbnail_url = asset.thumbnail_url
-                cache_item.license_info = asset.license_info
                 cache_item.quality_score = asset.quality_score
 
-                # Aggiungi a risultati - MIGLIORATO: includi anche model_urls
+                # Aggiungi ai risultati visibili
                 result_item = scene.openshelf_search_results.add()
                 result_item.asset_id = asset.id
                 result_item.name = asset.name
@@ -139,38 +135,23 @@ class OPENSHELF_OT_search_assets(Operator):
                 result_item.object_type = asset.object_type
                 result_item.inventory_number = asset.inventory_number
                 result_item.quality_score = asset.quality_score
-
-                # NUOVO: Includi anche gli URL nel result_item per debug
                 result_item.model_urls = json.dumps(asset.model_urls) if asset.model_urls else "[]"
-
-                # DEBUG: Stampa info per primi 3 asset
-                if len(results) <= 3 or results.index(asset) < 3:
-                    print(f"OpenShelf: Asset {asset.id}:")
-                    print(f"  - Name: {asset.name}")
-                    print(f"  - Model URLs (raw): {asset.model_urls}")
-                    print(f"  - Model URLs (JSON): {cache_item.model_urls}")
-                    print(f"  - First URL: {asset.model_urls[0] if asset.model_urls else 'None'}")
+                result_item.thumbnail_url = asset.thumbnail_url
+                result_item.materials = ', '.join(asset.materials)
+                result_item.chronology = ', '.join(asset.chronology)
 
             # Aggiorna statistiche
             scene.openshelf_search_count = len(results)
             scene.openshelf_last_search = filters.get('search', '')
             scene.openshelf_last_repository = scene.openshelf_active_repository
-
-            # Aggiorna stato
-            if results:
-                scene.openshelf_status_message = f"Found {len(results)} assets"
-                # DEBUG: Stampa info sui modelli 3D trovati
-                models_count = len([r for r in results if r.model_urls])
-                print(f"OpenShelf: {models_count}/{len(results)} assets have 3D models")
-            else:
-                scene.openshelf_status_message = "No assets found"
+            scene.openshelf_status_message = f"Found {len(results)} assets"
 
         except Exception as e:
             print(f"OpenShelf: Error updating search results: {e}")
             scene.openshelf_status_message = f"Error updating results: {str(e)}"
 
     def _check_search_progress(self, context):
-        """Controlla progresso ricerca (chiamato da timer) - FIXED"""
+        """Controlla progresso ricerca e aggiorna UI"""
         try:
             scene = context.scene
 
@@ -187,11 +168,11 @@ class OPENSHELF_OT_search_assets(Operator):
             return 0.1 if scene.openshelf_is_searching else None
 
         except (ReferenceError, AttributeError):
-            # Se l'operatore è stato cancellato, ferma il timer
             return None
         except Exception as e:
             print(f"OpenShelf: Timer error: {e}")
             return None
+
 
 class OPENSHELF_OT_clear_search(Operator):
     """Pulisce i risultati di ricerca"""
@@ -232,11 +213,61 @@ class OPENSHELF_OT_clear_search(Operator):
 
         return {'FINISHED'}
 
+
+class OPENSHELF_OT_clear_filters(Operator):
+    """Pulisce solo i filtri senza toccare ricerca e risultati"""
+    bl_idname = "openshelf.clear_filters"
+    bl_label = "Clear Filters"
+    bl_description = "Clear filter criteria without affecting search results"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        scene = context.scene
+
+        try:
+            # Pulisci SOLO i campi filtro
+            scene.openshelf_filter_type = ""
+            scene.openshelf_filter_material = ""
+            scene.openshelf_filter_chronology = ""
+            scene.openshelf_filter_inventory = ""
+
+            # Ripristina i risultati originali dalla cache (rimuove filtri applicati)
+            if hasattr(scene, 'openshelf_assets_cache') and len(scene.openshelf_assets_cache) > 0:
+                # Ripristina tutti i risultati dalla cache
+                scene.openshelf_search_results.clear()
+
+                for cached_item in scene.openshelf_assets_cache:
+                    result_item = scene.openshelf_search_results.add()
+                    result_item.asset_id = cached_item.asset_id
+                    result_item.name = cached_item.name
+                    result_item.description = cached_item.description
+                    result_item.repository = cached_item.repository
+                    result_item.object_type = cached_item.object_type
+                    result_item.inventory_number = cached_item.inventory_number
+                    result_item.quality_score = cached_item.quality_score
+                    result_item.model_urls = cached_item.model_urls
+                    result_item.thumbnail_url = cached_item.thumbnail_url
+                    result_item.materials = cached_item.materials
+                    result_item.chronology = cached_item.chronology
+
+                # Aggiorna conteggio
+                scene.openshelf_search_count = len(scene.openshelf_assets_cache)
+                scene.openshelf_status_message = f"Showing all {len(scene.openshelf_assets_cache)} results"
+
+            self.report({'INFO'}, "Filters cleared - showing all search results")
+
+        except Exception as e:
+            print(f"OpenShelf: Error clearing filters: {e}")
+            self.report({'ERROR'}, f"Error clearing filters: {str(e)}")
+
+        return {'FINISHED'}
+
+
 class OPENSHELF_OT_apply_filters(Operator):
-    """Applica filtri ai risultati esistenti"""
+    """Filtra i risultati di ricerca esistenti"""
     bl_idname = "openshelf.apply_filters"
-    bl_label = "Apply Filters"
-    bl_description = "Apply filters to current search results"
+    bl_label = "Filter Results"
+    bl_description = "Filter the current search results using the specified criteria"
     bl_options = {'REGISTER'}
 
     filter_object_type: StringProperty(
@@ -266,8 +297,13 @@ class OPENSHELF_OT_apply_filters(Operator):
     def execute(self, context):
         scene = context.scene
 
+        # Verifica che ci siano risultati da filtrare
+        if not hasattr(scene, 'openshelf_assets_cache') or len(scene.openshelf_assets_cache) == 0:
+            self.report({'WARNING'}, "No search results to filter. Run a search first.")
+            return {'CANCELLED'}
+
         try:
-            # Applica filtri ai risultati nella cache
+            # Costruisci filtri
             filters = {
                 'object_type': self.filter_object_type,
                 'material': self.filter_material,
@@ -278,9 +314,13 @@ class OPENSHELF_OT_apply_filters(Operator):
             # Rimuovi filtri vuoti
             filters = {k: v for k, v in filters.items() if v.strip()}
 
+            if not filters:
+                self.report({'WARNING'}, "No filter criteria specified")
+                return {'CANCELLED'}
+
             filtered_results = []
 
-            # Filtra risultati esistenti
+            # Filtra risultati esistenti dalla cache
             for cached_item in scene.openshelf_assets_cache:
                 # Ricostruisci asset per test filtri
                 asset_data = {
@@ -325,23 +365,31 @@ class OPENSHELF_OT_apply_filters(Operator):
                 result_item.object_type = result.object_type
                 result_item.inventory_number = result.inventory_number
                 result_item.quality_score = result.quality_score
-                # NUOVO: Mantieni anche gli URL nei risultati filtrati
                 result_item.model_urls = result.model_urls
+                result_item.thumbnail_url = result.thumbnail_url
+                result_item.materials = result.materials
+                result_item.chronology = result.chronology
 
             # Aggiorna statistiche
-            scene.openshelf_search_count = len(filtered_results)
-            scene.openshelf_status_message = f"Filtered to {len(filtered_results)} assets"
+            original_count = len(scene.openshelf_assets_cache)
+            filtered_count = len(filtered_results)
+            scene.openshelf_search_count = filtered_count
 
-            self.report({'INFO'}, f"Applied filters - {len(filtered_results)} assets shown")
+            if filtered_count == original_count:
+                scene.openshelf_status_message = f"No results filtered out ({filtered_count} total)"
+            else:
+                scene.openshelf_status_message = f"Filtered to {filtered_count} of {original_count} results"
+
+            self.report({'INFO'}, f"Filter applied - showing {filtered_count} of {original_count} results")
 
         except Exception as e:
-            print(f"OpenShelf: Error applying filters: {e}")
-            self.report({'ERROR'}, f"Error applying filters: {str(e)}")
+            print(f"OpenShelf: Error filtering results: {e}")
+            self.report({'ERROR'}, f"Error filtering results: {str(e)}")
 
         return {'FINISHED'}
 
     def invoke(self, context, event):
-        # Popola filtri con valori correnti
+        # Popola filtri con valori correnti dalla UI
         scene = context.scene
         self.filter_object_type = scene.openshelf_filter_type
         self.filter_material = scene.openshelf_filter_material
@@ -349,6 +397,7 @@ class OPENSHELF_OT_apply_filters(Operator):
         self.filter_inventory = scene.openshelf_filter_inventory
 
         return context.window_manager.invoke_props_dialog(self)
+
 
 class OPENSHELF_OT_search_suggestions(Operator):
     """Ottiene suggerimenti per la ricerca"""
@@ -411,6 +460,7 @@ class OPENSHELF_OT_search_suggestions(Operator):
             print(f"OpenShelf: Error getting suggestions from {repository.name}: {e}")
             return []
 
+
 class OPENSHELF_OT_quick_search(Operator):
     """Ricerca rapida con termine specifico"""
     bl_idname = "openshelf.quick_search"
@@ -457,6 +507,7 @@ class OPENSHELF_OT_quick_search(Operator):
 
         return {'FINISHED'}
 
+
 class OPENSHELF_OT_save_search(Operator):
     """Salva ricerca corrente"""
     bl_idname = "openshelf.save_search"
@@ -500,7 +551,7 @@ class OPENSHELF_OT_save_search(Operator):
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 
-# NUOVO: Operatore di debug per testare URL
+
 class OPENSHELF_OT_debug_model_urls(Operator):
     """Debug operatore per testare URL modelli"""
     bl_idname = "openshelf.debug_model_urls"
@@ -546,15 +597,17 @@ class OPENSHELF_OT_debug_model_urls(Operator):
         self.report({'INFO'}, f"Debugged {min(5, len(scene.openshelf_assets_cache))} assets")
         return {'FINISHED'}
 
+
 # Lista operatori da registrare
 operators = [
     OPENSHELF_OT_search_assets,
     OPENSHELF_OT_clear_search,
+    OPENSHELF_OT_clear_filters,  # NUOVO OPERATORE AGGIUNTO
     OPENSHELF_OT_apply_filters,
     OPENSHELF_OT_search_suggestions,
     OPENSHELF_OT_quick_search,
     OPENSHELF_OT_save_search,
-    OPENSHELF_OT_debug_model_urls,  # NUOVO
+    OPENSHELF_OT_debug_model_urls,
 ]
 
 def register():
