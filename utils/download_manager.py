@@ -44,6 +44,7 @@ class DownloadProgress:
             return 0
         return min(100, int((self.downloaded_size / self.total_size) * 100))
 
+
 class DownloadCache:
     """Cache per i file scaricati"""
 

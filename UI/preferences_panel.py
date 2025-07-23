@@ -288,8 +288,9 @@ class OpenShelfPreferences(AddonPreferences):
         col.label(text="Materials: {}".format("Apply" if self.auto_apply_materials else "Skip"))
         col.label(text="Metadata: {}".format("Add" if self.add_cultural_metadata else "Skip"))
 
+
     def draw_cache_tab(self, layout):
-        """Disegna tab impostazioni cache"""
+        """Disegna tab impostazioni cache - VERSIONE CORRETTA"""
 
         # Cache settings
         box = layout.box()
@@ -301,7 +302,24 @@ class OpenShelfPreferences(AddonPreferences):
         if self.download_cache_enabled:
             col.prop(self, "cache_max_size")
             col.prop(self, "cache_max_age")
-            col.prop(self, "custom_cache_directory")
+
+            # FIX: Cartella cache personalizzata con migliore UI
+            cache_box = col.box()
+            cache_box.label(text="Cache Directory", icon='FOLDER_REDIRECT')
+
+            cache_col = cache_box.column()
+            cache_col.prop(self, "custom_cache_directory", text="Custom Path")
+
+            # Info sulla directory corrente
+            if self.custom_cache_directory and os.path.exists(self.custom_cache_directory):
+                cache_col.label(text="✓ Custom directory exists", icon='CHECKMARK')
+            elif self.custom_cache_directory:
+                cache_col.label(text="⚠ Directory not found - will be created", icon='ERROR')
+            else:
+                import tempfile
+                default_cache = os.path.join(tempfile.gettempdir(), "openshelf_cache")
+                cache_col.label(text=f"Using default: {default_cache}", icon='INFO')
+
         else:
             col.label(text="Cache disabled - files will be downloaded each time")
 
@@ -309,17 +327,34 @@ class OpenShelfPreferences(AddonPreferences):
         box = layout.box()
         box.label(text="Cache Information", icon='INFO')
 
-        # Ottieni info cache attuale
-        from ..utils.download_manager import get_download_manager
-
+        # FIX: Migliore gestione errori per cache stats
         try:
+            from ..utils.download_manager import get_download_manager
             dm = get_download_manager()
+
+            # FIX: Se custom cache directory è impostata, la usa
+            if self.custom_cache_directory and self.custom_cache_directory.strip():
+                # Ricrea download manager con custom directory
+                from ..utils.download_manager import DownloadManager
+                dm = DownloadManager(self.custom_cache_directory.strip())
+
             cache_stats = dm.get_cache_statistics()
 
             col = box.column()
+            col.scale_y = 0.8
             col.label(text=f"Current cache size: {cache_stats['cache_size'] / (1024*1024):.1f} MB")
             col.label(text=f"Cached files: {cache_stats['file_count']}")
-            col.label(text=f"Cache directory: {cache_stats['cache_dir']}")
+
+            # Mostra directory attiva
+            cache_dir = cache_stats['cache_dir']
+            if len(cache_dir) > 50:
+                cache_dir = "..." + cache_dir[-47:]
+            col.label(text=f"Directory: {cache_dir}")
+
+            # Percentage utilizzata
+            if cache_stats['file_count'] > 0:
+                usage_percent = (cache_stats['cache_size'] / (1024*1024)) / self.cache_max_size * 100
+                col.label(text=f"Usage: {usage_percent:.1f}% of {self.cache_max_size} MB limit")
 
         except Exception as e:
             col = box.column()
@@ -329,9 +364,18 @@ class OpenShelfPreferences(AddonPreferences):
         box = layout.box()
         box.label(text="Cache Actions", icon='TOOL_SETTINGS')
 
-        row = box.row()
-        row.operator("openshelf.clear_repository_cache", text="Clear Cache", icon='TRASH')
-        # TODO: Aggiungere operatore per compattare cache
+        col = box.column(align=True)
+
+        # FIX: Clear cache button corretto
+        clear_op = col.operator("openshelf.clear_repository_cache", text="Clear All Cache", icon='TRASH')
+        clear_op.repository_name = "all"
+        clear_op.confirm = True
+
+        # Operazioni aggiuntive
+        col.operator("openshelf.open_cache_directory", text="Open Cache Folder", icon='FILE_FOLDER')
+
+        if self.custom_cache_directory:
+            col.operator("openshelf.reset_cache_directory", text="Reset to Default", icon='LOOP_BACK')
 
     def draw_advanced_tab(self, layout):
         """Disegna tab impostazioni avanzate"""
