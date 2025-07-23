@@ -1,6 +1,7 @@
 """
-OpenShelf OBJ Loader
+OpenShelf OBJ Loader - VERSIONE CORRETTA PER BLENDER 4.2+
 Loader riutilizzabile per file OBJ con supporto materiali e metadati culturali
+FIX: Parametri corretti per bpy.ops.wm.obj_import in Blender 4.2+
 """
 
 import bpy
@@ -40,34 +41,41 @@ class OBJLoader:
             except (AttributeError, RuntimeError):
                 print("OpenShelf: Context not available, proceeding anyway")
 
-            # PARAMETRI CORRETTI PER BLENDER 4.2+ (RIMUOVE use_edges)
+            # PARAMETRI CORRETTI PER BLENDER 4.2+ (FIX PRINCIPALE)
             import_params = {
                 'filepath': filepath,
-                # ❌ RIMOSSO: 'use_edges' - non esiste più in Blender 4.2+
-                'use_smooth_groups': kwargs.get('use_smooth_groups', True),
+                #'use_smooth_groups': kwargs.get('use_smooth_groups', True),
                 'use_split_objects': kwargs.get('use_split_objects', True),
                 'use_split_groups': kwargs.get('use_split_groups', False),
-                # Parametri assi corretti per Blender 4.2+
-                'forward_axis': kwargs.get('axis_forward', 'NEGATIVE_Z'),  # Cambiato da 'axis_forward'
-                'up_axis': kwargs.get('axis_up', 'Y'),                    # Cambiato da 'axis_up'
+                # *** FIX CRITICO: Parametri corretti per Blender 4.2+ ***
+                'forward_axis': kwargs.get('forward_axis', 'NEGATIVE_Z'),  # Era 'axis_forward'
+                'up_axis': kwargs.get('up_axis', 'Y'),                    # Era 'axis_up'
             }
 
-            # Aggiungi parametri opzionali solo se specificati
-            if kwargs.get('global_clamp_size', 0.0) > 0:
-                import_params['global_scale'] = kwargs.get('global_clamp_size', 0.0)
+            # Aggiungi parametri opzionali solo se specificati e validi
+            if kwargs.get('global_scale', 0.0) > 0:
+                import_params['global_scale'] = kwargs.get('global_scale', 1.0)
 
             print(f"OpenShelf: Importing OBJ with parameters: {list(import_params.keys())}")
 
             # IMPORT CON GESTIONE ERRORI ROBUSTA
             try:
-                # Prova con tutti i parametri
-                bpy.ops.wm.obj_import(**import_params)
+                # Import OBJ con parametri corretti
+                result = bpy.ops.wm.obj_import(**import_params)
+                print(f"OpenShelf: OBJ import result: {result}")
 
             except TypeError as e:
-                if "unrecognized" in str(e):
-                    print(f"OpenShelf: Some parameters not supported, using minimal import: {e}")
-                    # Fallback: solo filepath
-                    bpy.ops.wm.obj_import(filepath=filepath)
+                if "unexpected keyword argument" in str(e) or "unrecognized" in str(e):
+                    print(f"OpenShelf: Parameter error, using minimal import: {e}")
+                    # Fallback: solo parametri essenziali
+                    minimal_params = {
+                        'filepath': filepath,
+
+                        'use_split_objects': True,
+                        'forward_axis': 'NEGATIVE_Z',
+                        'up_axis': 'Y'
+                    }
+                    result = bpy.ops.wm.obj_import(**minimal_params)
                 else:
                     raise
 
@@ -78,7 +86,6 @@ class OBJLoader:
                     new_objects = [obj for obj in bpy.context.selected_objects if obj not in original_selection]
                 else:
                     # Fallback: trova oggetti con nomi che contengono il nome del file
-                    import os
                     base_name = os.path.splitext(os.path.basename(filepath))[0]
                     new_objects = [obj for obj in bpy.data.objects if base_name in obj.name]
             except Exception as e:
@@ -116,12 +123,12 @@ class OBJLoader:
             OBJLoader._center_object(obj)
 
         # Applica scala se richiesta
-        scale_factor = kwargs.get('scale_factor', 1.0)
+        scale_factor = kwargs.get('import_scale', kwargs.get('scale_factor', 1.0))
         if scale_factor != 1.0:
             obj.scale = (scale_factor, scale_factor, scale_factor)
 
         # Applica materiali se richiesto
-        if kwargs.get('auto_materials', True):
+        if kwargs.get('auto_materials', kwargs.get('apply_materials', True)):
             OBJLoader._setup_materials(obj)
 
         # Calcola normali se richiesto
@@ -262,7 +269,10 @@ class OBJLoader:
 
             for key, value in array_metadata.items():
                 if value:
-                    obj[f"{prefix}{key}"] = ", ".join(str(v) for v in value)
+                    if isinstance(value, list):
+                        obj[f"{prefix}{key}"] = ", ".join(str(v) for v in value)
+                    else:
+                        obj[f"{prefix}{key}"] = str(value)
 
             # Applica metadati numerici
             numeric_metadata = {
@@ -292,27 +302,27 @@ class OBJLoader:
         # Impostazioni per repository specifici
         repository_settings = {
             "Ercolano": {
-                "use_smooth_groups": True,
-                "use_edges": True,
-                "use_image_search": True,
+                #"use_smooth_groups": True,
+                "use_split_objects": True,
+                "use_split_groups": False,
                 "auto_center": True,
-                "scale_factor": 1.0,
-                "auto_materials": True,
+                "import_scale": 1.0,
+                "apply_materials": True,
                 "recalculate_normals": False,
-                "axis_forward": '-Z',
-                "axis_up": 'Y'
+                "forward_axis": 'NEGATIVE_Z',
+                "up_axis": 'Y'
             },
             # Futuro: aggiungere impostazioni per altri repository
             "default": {
-                "use_smooth_groups": True,
-                "use_edges": True,
-                "use_image_search": True,
+                #"use_smooth_groups": True,
+                "use_split_objects": True,
+                "use_split_groups": False,
                 "auto_center": True,
-                "scale_factor": 1.0,
-                "auto_materials": True,
+                "import_scale": 1.0,
+                "apply_materials": True,
                 "recalculate_normals": False,
-                "axis_forward": '-Z',
-                "axis_up": 'Y'
+                "forward_axis": 'NEGATIVE_Z',
+                "up_axis": 'Y'
             }
         }
 
@@ -457,3 +467,25 @@ class OBJLoader:
             result["errors"].append(f"Error validating file: {str(e)}")
 
         return result
+
+    @staticmethod
+    def get_obj_info(filepath: str) -> Dict[str, Any]:
+        """
+        Ottiene informazioni dettagliate su un file OBJ
+
+        Args:
+            filepath: Path al file OBJ
+
+        Returns:
+            Dizionario con informazioni dettagliate
+        """
+        validation = OBJLoader.validate_obj_file(filepath)
+
+        if not validation["valid"]:
+            return validation
+
+        info = validation["info"].copy()
+        info["filepath"] = filepath
+        info["filename"] = os.path.basename(filepath)
+
+        return info

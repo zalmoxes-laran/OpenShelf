@@ -31,10 +31,10 @@ class ImportThreadState:
 _import_state = ImportThreadState()
 
 class OPENSHELF_OT_import_asset(Operator):
-    """Importa un asset 3D specifico"""
+    """Importa un asset 3D specifico (LEGACY - reindirizza al modal per sicurezza)"""
     bl_idname = "openshelf.import_asset"
     bl_label = "Import Asset"
-    bl_description = "Download and import selected 3D asset"
+    bl_description = "Download and import selected 3D asset (redirects to modal import for stability)"
     bl_options = {'REGISTER', 'UNDO'}
 
     asset_id: StringProperty(
@@ -76,70 +76,55 @@ class OPENSHELF_OT_import_asset(Operator):
     )
 
     def execute(self, context):
+        """REINDIRIZZAMENTO AUTOMATICO al modal operator più sicuro"""
+
+        print("OpenShelf: Legacy import operator - redirecting to modal import for stability")
+
+        # Reindirizza al modal operator che è più sicuro
+        try:
+            return bpy.ops.openshelf.modal_import_asset(
+                asset_id=self.asset_id,
+                import_scale=self.import_scale,
+                auto_center=self.auto_center,
+                apply_materials=self.apply_materials,
+                add_metadata=self.add_metadata
+            )
+        except Exception as e:
+            print(f"OpenShelf: Error redirecting to modal import: {e}")
+            self.report({'ERROR'}, f"Import failed: {str(e)}")
+            return {'CANCELLED'}
+
+    def invoke(self, context, event):
+        # Popola proprietà con valori dalle preferenze scene
         scene = context.scene
+        self.import_scale = scene.openshelf_import_scale / 100.0  # Converti in float
+        self.auto_center = scene.openshelf_auto_center
+        self.apply_materials = scene.openshelf_apply_materials
+        self.add_metadata = scene.openshelf_add_metadata
 
-        if not self.asset_id:
-            self.report({'ERROR'}, "No asset ID specified")
-            return {'CANCELLED'}
+        return self.execute(context)
 
-        # Trova asset nella cache
-        asset_data = None
-        for cached_asset in scene.openshelf_assets_cache:
-            if cached_asset.asset_id == self.asset_id:
-                asset_data = cached_asset
-                break
+class OPENSHELF_OT_import_asset_old_threading(Operator):
+    """Import con vecchio sistema threading (SOLO PER BACKUP - NON USARE)"""
+    bl_idname = "openshelf.import_asset_old_threading"
+    bl_label = "Import Asset (Old Threading - DO NOT USE)"
+    bl_description = "Old threading import - kept for reference only, DO NOT USE"
+    bl_options = {'REGISTER', 'UNDO'}
 
-        if not asset_data:
-            self.report({'ERROR'}, f"Asset '{self.asset_id}' not found in cache")
-            return {'CANCELLED'}
+    asset_id: StringProperty(default="")
+    use_cache: BoolProperty(default=True)
+    import_scale: FloatProperty(default=1.0, min=0.01, max=100.0)
+    auto_center: BoolProperty(default=True)
+    apply_materials: BoolProperty(default=True)
+    add_metadata: BoolProperty(default=True)
 
-        # Impedisci download multipli simultanei
-        with _import_state.lock:
-            if _import_state.is_downloading:
-                self.report({'INFO'}, "Download already in progress")
-                return {'CANCELLED'}
+    def execute(self, context):
+        """METODO DEPRECATO - Non usare, mantenuto solo per reference"""
+        self.report({'ERROR'}, "This operator is deprecated - use modal_import_asset instead")
+        return {'CANCELLED'}
 
-            # Reset stato
-            _import_state.is_downloading = True
-            _import_state.download_progress = 0
-            _import_state.status_message = "Starting download..."
-            _import_state.pending_import_data = None
-            _import_state.error_message = None
-            _import_state.completed = False
-
-        # Imposta stato iniziale nella scena (siamo nel main thread)
-        scene.openshelf_is_downloading = True
-        scene.openshelf_download_progress = 0
-        scene.openshelf_status_message = "Starting download..."
-
-        # *** FIX CRITICO: Copia le proprietà in variabili locali ***
-        # NON passare self al thread - copia i valori necessari
-        thread_params = {
-            'use_cache': self.use_cache,
-            'import_scale': self.import_scale,
-            'auto_center': self.auto_center,
-            'apply_materials': self.apply_materials,
-            'add_metadata': self.add_metadata
-        }
-
-        # Avvia download in thread separato
-        import_thread = threading.Thread(
-            target=self._download_thread,
-            args=(context, asset_data, thread_params),  # *** CAMBIATO: Passa parametri invece di self ***
-            daemon=True
-        )
-        import_thread.start()
-
-        # Avvia timer per sincronizzare stato
-        bpy.app.timers.register(
-            self._update_ui_state,
-            first_interval=0.1
-        )
-
-        return {'FINISHED'}
-
-    def _download_thread(self, context, asset_data, thread_params):  # *** CAMBIATO: Aggiunto thread_params ***
-        """Thread per download - VERSIONE CORRETTA senza accesso a self.proprietà"""
+    def _download_thread(self, context, asset_data, thread_params):
+        """Thread per download - VERSIONE ORIGINALE (DEPRECATA)"""
         try:
             # Aggiorna stato thread-safe
             with _import_state.lock:
@@ -183,7 +168,7 @@ class OPENSHELF_OT_import_asset(Operator):
                     _import_state.error_message = "No valid 3D model URLs found"
                 return
 
-            # Download - *** FIX: USA thread_params invece di self ***
+            # Download
             download_manager = get_download_manager()
             archive_path = None
 
@@ -199,10 +184,9 @@ class OPENSHELF_OT_import_asset(Operator):
                         with _import_state.lock:
                             _import_state.download_progress = progress
 
-                # *** FIX CRITICO: Usa thread_params['use_cache'] invece di self.use_cache ***
                 archive_path = download_manager.download_file(
                     model_url,
-                    use_cache=thread_params['use_cache'],  # <-- CORRETTO
+                    use_cache=thread_params['use_cache'],
                     progress_callback=progress_callback
                 )
 
@@ -249,15 +233,15 @@ class OPENSHELF_OT_import_asset(Operator):
                     _import_state.error_message = "No supported 3D files found"
                 return
 
-            # Prepara dati per import nel main thread - *** USA thread_params ***
+            # Prepara dati per import nel main thread
             import_data = {
                 'model_path': found_files[0],
                 'asset_data': asset_data,
                 'import_settings': {
-                    'import_scale': thread_params['import_scale'],      # <-- CORRETTO
-                    'auto_center': thread_params['auto_center'],        # <-- CORRETTO
-                    'apply_materials': thread_params['apply_materials'], # <-- CORRETTO
-                    'add_metadata': thread_params['add_metadata']       # <-- CORRETTO
+                    'import_scale': thread_params['import_scale'],
+                    'auto_center': thread_params['auto_center'],
+                    'apply_materials': thread_params['apply_materials'],
+                    'add_metadata': thread_params['add_metadata']
                 }
             }
 
@@ -272,16 +256,6 @@ class OPENSHELF_OT_import_asset(Operator):
             traceback.print_exc()
             with _import_state.lock:
                 _import_state.error_message = f"Download error: {str(e)}"
-
-    def invoke(self, context, event):
-        # Popola proprietà con valori dalle preferenze scene
-        scene = context.scene
-        self.import_scale = scene.openshelf_import_scale / 100.0  # Converti in float
-        self.auto_center = scene.openshelf_auto_center
-        self.apply_materials = scene.openshelf_apply_materials
-        self.add_metadata = scene.openshelf_add_metadata
-
-        return self.execute(context)
 
     def _update_ui_state(self):
         """Aggiorna UI con stato dal thread - eseguito nel main thread"""
@@ -397,8 +371,6 @@ class OPENSHELF_OT_import_asset(Operator):
             with _import_state.lock:
                 _import_state.error_message = f"Import error: {str(e)}"
 
-
-
 class OPENSHELF_OT_batch_import(Operator):
     """Importa multipli asset in batch"""
     bl_idname = "openshelf.batch_import"
@@ -439,10 +411,67 @@ class OPENSHELF_OT_batch_import(Operator):
             self.report({'ERROR'}, "Too many assets selected (max 20)")
             return {'CANCELLED'}
 
-        # TODO: Implementare batch import thread-safe
-        self.report({'INFO'}, f"Batch import of {len(selected_assets)} assets - Coming soon!")
+        # Batch import usando modal operators
+        self.report({'INFO'}, f"Batch import of {len(selected_assets)} assets using stable modal import")
+
+        imported_count = 0
+        failed_count = 0
+
+        # Importa uno alla volta usando modal operator (più sicuro)
+        for i, asset_id in enumerate(selected_assets[:5]):  # Limita a 5 per evitare sovraccarico
+            try:
+                print(f"OpenShelf: Batch import {i+1}/{len(selected_assets[:5])}: {asset_id}")
+
+                # Usa modal import per ogni asset
+                result = bpy.ops.openshelf.modal_import_asset(asset_id=asset_id)
+
+                if result == {'FINISHED'}:
+                    imported_count += 1
+                    # Piccola pausa tra import per stabilità
+                    time.sleep(0.5)
+                else:
+                    failed_count += 1
+
+            except Exception as e:
+                print(f"OpenShelf: Batch import error for {asset_id}: {e}")
+                failed_count += 1
+                continue
+
+        # Raggruppa oggetti importati se richiesto
+        if imported_count > 1 and self.import_spacing > 0:
+            self._arrange_imported_objects(context, self.import_spacing)
+
+        # Report finale
+        total_attempted = len(selected_assets[:5])
+        self.report({'INFO'}, f"Batch import completed: {imported_count} success, {failed_count} failed of {total_attempted} total")
 
         return {'FINISHED'}
+
+    def _arrange_imported_objects(self, context, spacing):
+        """Arrangia oggetti importati in griglia"""
+        try:
+            # Trova oggetti recentemente importati (con metadati OpenShelf)
+            imported_objects = []
+            for obj in context.scene.objects:
+                if obj.get('openshelf_id'):
+                    imported_objects.append(obj)
+
+            if len(imported_objects) <= 1:
+                return
+
+            # Arrangia in griglia
+            import math
+            cols = math.ceil(math.sqrt(len(imported_objects)))
+
+            for i, obj in enumerate(imported_objects[-5:]):  # Ultimi 5 importati
+                row = i // cols
+                col = i % cols
+                obj.location = (col * spacing, row * spacing, 0)
+
+            print(f"OpenShelf: Arranged {len(imported_objects[-5:])} objects in grid")
+
+        except Exception as e:
+            print(f"OpenShelf: Error arranging objects: {e}")
 
 class OPENSHELF_OT_preview_asset(Operator):
     """Anteprima asset senza importarlo"""
@@ -475,25 +504,91 @@ class OPENSHELF_OT_preview_asset(Operator):
             self.report({'ERROR'}, f"Asset '{self.asset_id}' not found in cache")
             return {'CANCELLED'}
 
-        # Mostra informazioni asset
-        info_text = f"""
-Asset: {asset_data.name}
-Type: {asset_data.object_type}
-Repository: {asset_data.repository}
-Inventory: {asset_data.inventory_number}
-Materials: {asset_data.materials}
-Chronology: {asset_data.chronology}
-Quality Score: {asset_data.quality_score}
-Description: {asset_data.description}
-        """
+        # Mostra informazioni asset in popup esteso
+        def draw_preview_popup(self, context):
+            layout = self.layout
 
-        # Mostra popup con informazioni
-        def draw_popup(self, context):
-            lines = info_text.strip().split('\n')
-            for line in lines:
-                self.layout.label(text=line)
+            # Header
+            layout.label(text=f"Asset Preview", icon='INFO')
+            layout.separator()
 
-        context.window_manager.popup_menu(draw_popup, title="Asset Preview", icon='INFO')
+            # Informazioni base
+            box = layout.box()
+            box.label(text="Basic Information", icon='OBJECT_DATA')
+
+            col = box.column(align=True)
+            col.scale_y = 0.8
+            col.label(text=f"Name: {asset_data.name}")
+            col.label(text=f"ID: {asset_data.asset_id}")
+            col.label(text=f"Type: {asset_data.object_type}")
+            col.label(text=f"Repository: {asset_data.repository}")
+            col.label(text=f"Inventory: {asset_data.inventory_number}")
+
+            # Dettagli culturali
+            if asset_data.materials or asset_data.chronology:
+                box = layout.box()
+                box.label(text="Cultural Details", icon='BOOKMARKS')
+
+                col = box.column(align=True)
+                col.scale_y = 0.8
+                if asset_data.materials:
+                    col.label(text=f"Materials: {asset_data.materials}")
+                if asset_data.chronology:
+                    col.label(text=f"Period: {asset_data.chronology}")
+
+            # Qualità e dimensioni
+            box = layout.box()
+            box.label(text="Technical Info", icon='SETTINGS')
+
+            col = box.column(align=True)
+            col.scale_y = 0.8
+            col.label(text=f"Quality Score: {asset_data.quality_score}%")
+
+            # Check model URLs
+            has_models = False
+            try:
+                if asset_data.model_urls:
+                    urls = json.loads(asset_data.model_urls)
+                    has_models = len(urls) > 0 if isinstance(urls, list) else bool(urls)
+                    col.label(text=f"3D Models: {len(urls) if isinstance(urls, list) else 1}")
+            except:
+                pass
+
+            if not has_models:
+                col.label(text="3D Models: None available", icon='ERROR')
+
+            # Descrizione (se presente)
+            if asset_data.description and asset_data.description.strip():
+                box = layout.box()
+                box.label(text="Description", icon='TEXT')
+
+                # Limita descrizione per popup
+                desc = asset_data.description.strip()
+                if len(desc) > 150:
+                    desc = desc[:150] + "..."
+
+                # Spezza in righe
+                words = desc.split()
+                current_line = ""
+                col = box.column(align=True)
+                col.scale_y = 0.8
+
+                for word in words:
+                    if len(current_line + " " + word) <= 40:
+                        current_line += " " + word if current_line else word
+                    else:
+                        if current_line:
+                            col.label(text=current_line)
+                        current_line = word
+
+                if current_line:
+                    col.label(text=current_line)
+
+        context.window_manager.popup_menu(
+            draw_preview_popup,
+            title=f"Preview: {asset_data.name[:30]}...",
+            icon='INFO'
+        )
 
         return {'FINISHED'}
 
@@ -710,25 +805,26 @@ class OPENSHELF_OT_cancel_import(Operator):
     def execute(self, context):
         scene = context.scene
 
-        with _import_state.lock:
-            if not _import_state.is_downloading:
-                self.report({'INFO'}, "No import in progress")
-                return {'CANCELLED'}
-
-            # Ferma download
-            _import_state.is_downloading = False
-            _import_state.download_progress = 0
-            _import_state.status_message = "Import cancelled"
-            _import_state.completed = True
-
+        # Reset immediato dell'UI
         scene.openshelf_is_downloading = False
         scene.openshelf_download_progress = 0
         scene.openshelf_status_message = "Import cancelled"
 
+        # Reset anche lo stato globale
+        with _import_state.lock:
+            _import_state.is_downloading = False
+            _import_state.download_progress = 0
+            _import_state.status_message = "Import cancelled"
+            _import_state.completed = True
+            _import_state.error_message = "Cancelled by user"
+
+        # Force UI redraw
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+
         self.report({'INFO'}, "Import cancelled")
-
         return {'FINISHED'}
-
 
 class OPENSHELF_OT_import_asset_with_options(Operator):
     """Importa asset con dialog opzioni"""
@@ -849,7 +945,7 @@ class OPENSHELF_OT_import_asset_with_options(Operator):
         return context.window_manager.invoke_props_dialog(self, width=400)
 
     def execute(self, context):
-        """Esegue l'import con le opzioni selezionate"""
+        """Esegue l'import con le opzioni selezionate usando modal operator"""
         scene = context.scene
 
         if not self.asset_id:
@@ -862,21 +958,23 @@ class OPENSHELF_OT_import_asset_with_options(Operator):
         scene.openshelf_apply_materials = self.apply_materials
         scene.openshelf_add_metadata = self.add_metadata
 
-        # Esegue l'import normale con le opzioni personalizzate
-        bpy.ops.openshelf.import_asset(
-            asset_id=self.asset_id,
-            use_cache=self.use_cache,
-            import_scale=self.import_scale / 100.0,  # Converti percentuale
-            auto_center=self.auto_center,
-            apply_materials=self.apply_materials,
-            add_metadata=self.add_metadata
-        )
-
-        return {'FINISHED'}
+        # Esegue l'import usando il modal operator sicuro
+        try:
+            return bpy.ops.openshelf.modal_import_asset(
+                asset_id=self.asset_id,
+                import_scale=self.import_scale / 100.0,  # Converti percentuale
+                auto_center=self.auto_center,
+                apply_materials=self.apply_materials,
+                add_metadata=self.add_metadata
+            )
+        except Exception as e:
+            self.report({'ERROR'}, f"Import with options failed: {str(e)}")
+            return {'CANCELLED'}
 
 # Lista operatori da registrare
 operators = [
     OPENSHELF_OT_import_asset,
+    OPENSHELF_OT_import_asset_old_threading,  # Mantenuto solo per reference
     OPENSHELF_OT_batch_import,
     OPENSHELF_OT_preview_asset,
     OPENSHELF_OT_validate_asset,

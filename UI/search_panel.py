@@ -224,7 +224,7 @@ class OPENSHELF_PT_results_panel(Panel):
                     actions_row = actions_box.row(align=True)
 
                     # Import normale (usa impostazioni correnti)
-                    import_op = actions_row.operator("openshelf.import_asset", text="Import", icon='IMPORT')
+                    import_op = actions_row.operator("openshelf.modal_import_asset", text="Import", icon='IMPORT')
                     import_op.asset_id = selected_result.asset_id
 
                     # Import con dialog opzioni (se disponibile)
