@@ -716,6 +716,151 @@ class OPENSHELF_OT_cancel_import(Operator):
 
         return {'FINISHED'}
 
+
+class OPENSHELF_OT_import_asset_with_options(Operator):
+    """Importa asset con dialog opzioni"""
+    bl_idname = "openshelf.import_asset_with_options"
+    bl_label = "Import Asset with Options"
+    bl_description = "Import asset with customizable options dialog"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    asset_id: StringProperty(
+        name="Asset ID",
+        description="ID of the asset to import",
+        default=""
+    )
+
+    use_cache: BoolProperty(
+        name="Use Cache",
+        description="Use cached files if available",
+        default=True
+    )
+
+    import_scale: IntProperty(
+        name="Import Scale (%)",
+        description="Scale factor for imported object",
+        default=100,
+        min=1,
+        max=1000
+    )
+
+    auto_center: BoolProperty(
+        name="Auto Center",
+        description="Center object at origin",
+        default=True
+    )
+
+    apply_materials: BoolProperty(
+        name="Apply Materials",
+        description="Apply materials to imported object",
+        default=True
+    )
+
+    add_metadata: BoolProperty(
+        name="Add Cultural Metadata",
+        description="Add cultural metadata as custom properties",
+        default=True
+    )
+
+    # Opzioni avanzate aggiuntive
+    recalculate_normals: BoolProperty(
+        name="Recalculate Normals",
+        description="Recalculate normals after import (OBJ only)",
+        default=False
+    )
+
+    merge_duplicates: BoolProperty(
+        name="Merge Duplicate Vertices",
+        description="Merge duplicate vertices after import",
+        default=False
+    )
+
+    def draw(self, context):
+        """Disegna il dialog con le opzioni"""
+        layout = self.layout
+
+        # Sezione principale
+        box = layout.box()
+        box.label(text="Import Options", icon='IMPORT')
+
+        # Scala e posizionamento
+        col = box.column(align=True)
+        col.prop(self, "import_scale")
+        col.prop(self, "auto_center")
+
+        layout.separator()
+
+        # Materiali e metadati
+        box = layout.box()
+        box.label(text="Materials & Metadata", icon='MATERIAL')
+
+        col = box.column(align=True)
+        col.prop(self, "apply_materials")
+        col.prop(self, "add_metadata")
+
+        layout.separator()
+
+        # Opzioni avanzate
+        box = layout.box()
+        box.label(text="Advanced Options", icon='SETTINGS')
+
+        col = box.column(align=True)
+        col.prop(self, "use_cache")
+        col.prop(self, "recalculate_normals")
+        col.prop(self, "merge_duplicates")
+
+        layout.separator()
+
+        # Anteprima
+        box = layout.box()
+        box.label(text="Preview", icon='HIDE_OFF')
+
+        col = box.column(align=True)
+        col.scale_y = 0.8
+        col.label(text=f"Scale: {self.import_scale}%")
+        col.label(text=f"Center: {'Yes' if self.auto_center else 'No'}")
+        col.label(text=f"Materials: {'Apply' if self.apply_materials else 'Skip'}")
+        col.label(text=f"Metadata: {'Add' if self.add_metadata else 'Skip'}")
+
+    def invoke(self, context, event):
+        """Mostra dialog con opzioni"""
+        scene = context.scene
+
+        # Popola proprietà con valori dalle impostazioni scene
+        self.import_scale = scene.openshelf_import_scale
+        self.auto_center = scene.openshelf_auto_center
+        self.apply_materials = scene.openshelf_apply_materials
+        self.add_metadata = scene.openshelf_add_metadata
+
+        # Mostra dialog
+        return context.window_manager.invoke_props_dialog(self, width=400)
+
+    def execute(self, context):
+        """Esegue l'import con le opzioni selezionate"""
+        scene = context.scene
+
+        if not self.asset_id:
+            self.report({'ERROR'}, "No asset ID specified")
+            return {'CANCELLED'}
+
+        # Salva le impostazioni nelle proprietà scene per la prossima volta
+        scene.openshelf_import_scale = self.import_scale
+        scene.openshelf_auto_center = self.auto_center
+        scene.openshelf_apply_materials = self.apply_materials
+        scene.openshelf_add_metadata = self.add_metadata
+
+        # Esegue l'import normale con le opzioni personalizzate
+        bpy.ops.openshelf.import_asset(
+            asset_id=self.asset_id,
+            use_cache=self.use_cache,
+            import_scale=self.import_scale / 100.0,  # Converti percentuale
+            auto_center=self.auto_center,
+            apply_materials=self.apply_materials,
+            add_metadata=self.add_metadata
+        )
+
+        return {'FINISHED'}
+
 # Lista operatori da registrare
 operators = [
     OPENSHELF_OT_import_asset,
@@ -723,6 +868,7 @@ operators = [
     OPENSHELF_OT_preview_asset,
     OPENSHELF_OT_validate_asset,
     OPENSHELF_OT_cancel_import,
+    OPENSHELF_OT_import_asset_with_options,
 ]
 
 def register():

@@ -1,7 +1,7 @@
 """
-OpenShelf Search Panel - VERSIONE CORRETTA
+OpenShelf Search Panel - VERSIONE COMPLETA AGGIORNATA
 Pannello principale per ricerca asset culturali
-FIX: Rimosso import_op.repository e aggiunti operatori mancanti
+AGGIUNTO: Pannello Import Settings con preset Meters/Millimeters
 """
 
 import bpy
@@ -219,20 +219,28 @@ class OPENSHELF_PT_results_panel(Panel):
                 if 0 <= selected_index < len(scene.openshelf_search_results):
                     selected_result = scene.openshelf_search_results[selected_index]
 
-                    # PULSANTI AZIONE
+                    # PULSANTI AZIONE - VERSIONE AGGIORNATA
                     actions_box = box.box()
                     actions_row = actions_box.row(align=True)
 
-                    # Pulsante Import
+                    # Import normale (usa impostazioni correnti)
                     import_op = actions_row.operator("openshelf.import_asset", text="Import", icon='IMPORT')
                     import_op.asset_id = selected_result.asset_id
 
-                    # Pulsante Preview
-                    preview_op = actions_row.operator("openshelf.preview_asset", text="Info", icon='INFO')
+                    # Import con dialog opzioni (se disponibile)
+                    if hasattr(bpy.ops.openshelf, 'import_asset_with_options'):
+                        import_opts_op = actions_row.operator("openshelf.import_asset_with_options", text="Options", icon='TOOL_SETTINGS')
+                        import_opts_op.asset_id = selected_result.asset_id
+
+                    # Seconda riga utility
+                    utils_row = actions_box.row(align=True)
+
+                    # Preview
+                    preview_op = utils_row.operator("openshelf.preview_asset", text="Info", icon='INFO')
                     preview_op.asset_id = selected_result.asset_id
 
-                    # Pulsante Validate
-                    validate_op = actions_row.operator("openshelf.validate_asset", text="Check", icon='CHECKMARK')
+                    # Validate
+                    validate_op = utils_row.operator("openshelf.validate_asset", text="Check", icon='CHECKMARK')
                     validate_op.asset_id = selected_result.asset_id
 
                     # NUOVA SEZIONE: DETTAGLI ASSET SELEZIONATO
@@ -345,6 +353,77 @@ class OPENSHELF_PT_results_panel(Panel):
                 box.label(text="Run a search to see results", icon='ZOOM_SELECTED')
 
 
+class OPENSHELF_PT_import_settings_panel(Panel):
+    """Pannello impostazioni import"""
+    bl_label = "Import Settings"
+    bl_idname = "OPENSHELF_PT_import_settings_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OpenShelf"
+    bl_parent_id = "OPENSHELF_PT_main_panel"
+    bl_order = 4  # Prima dei filtri
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        self.layout.label(icon='IMPORT')
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+
+        # SEZIONE SCALA E POSIZIONAMENTO
+        box = layout.box()
+        box.label(text="Scale & Position", icon='OBJECT_ORIGIN')
+
+        col = box.column(align=True)
+
+        # Scala di import con slider
+        row = col.row(align=True)
+        row.prop(scene, 'openshelf_import_scale', text="Scale")
+        row.label(text="%")
+
+        # Auto center
+        col.prop(scene, 'openshelf_auto_center', text="Auto Center")
+
+        # SEZIONE MATERIALI
+        box = layout.box()
+        box.label(text="Materials & Data", icon='MATERIAL')
+
+        col = box.column(align=True)
+        col.prop(scene, 'openshelf_apply_materials', text="Apply Materials")
+        col.prop(scene, 'openshelf_add_metadata', text="Cultural Metadata")
+
+        # SEZIONE PRESET MODIFICATA
+        box = layout.box()
+        box.label(text="Quick Presets: original model is in", icon='PRESET')
+
+        # Bottoni preset rapidi
+        row = box.row(align=True)
+
+        # Preset "Meters"
+        meter_op = row.operator("openshelf.apply_import_preset", text="Meters")
+        meter_op.preset_name = "meter"
+
+        # Preset "Millimeters"
+        millimeter_op = row.operator("openshelf.apply_import_preset", text="Millimeters")
+        millimeter_op.preset_name = "millimeter"
+
+        # Reset alle impostazioni di default
+        reset_row = box.row()
+        reset_row.operator("openshelf.reset_import_settings", text="Reset to Defaults", icon='FILE_REFRESH')
+
+        # Anteprima impostazioni correnti
+        info_box = layout.box()
+        info_box.label(text="Current Settings", icon='INFO')
+
+        col = info_box.column(align=True)
+        col.scale_y = 0.8
+        col.label(text=f"Scale: {scene.openshelf_import_scale}%")
+        col.label(text=f"Center: {'Yes' if scene.openshelf_auto_center else 'No'}")
+        col.label(text=f"Materials: {'Apply' if scene.openshelf_apply_materials else 'Skip'}")
+        col.label(text=f"Metadata: {'Add' if scene.openshelf_add_metadata else 'Skip'}")
+
+
 class OPENSHELF_PT_filter_results_panel(Panel):
     """Pannello filtri - SPOSTATO DOPO I RISULTATI"""
     bl_label = "Filter Results"
@@ -353,7 +432,7 @@ class OPENSHELF_PT_filter_results_panel(Panel):
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 4
+    bl_order = 5
     bl_options = {'DEFAULT_CLOSED'}  # Chiuso di default
 
     def draw_header(self, context):
@@ -454,7 +533,6 @@ class OPENSHELF_UL_search_results(bpy.types.UIList):
             layout.label(text="", icon=type_icon)
 
 
-# NUOVO: Operatore missing per show_asset_info (era il problema!)
 class OPENSHELF_OT_show_asset_info(bpy.types.Operator):
     """Mostra informazioni dettagliate asset"""
     bl_idname = "openshelf.show_asset_info"
@@ -474,15 +552,116 @@ class OPENSHELF_OT_show_asset_info(bpy.types.Operator):
         return {'FINISHED'}
 
 
-# Registrazione pannelli
+class OPENSHELF_OT_apply_import_preset(bpy.types.Operator):
+    """Applica preset import con supporto per Meters/Millimeters"""
+    bl_idname = "openshelf.apply_import_preset"
+    bl_label = "Apply Import Preset"
+    bl_description = "Apply predefined import settings for different unit scales"
+    bl_options = {'REGISTER'}
+
+    preset_name: bpy.props.StringProperty(
+        name="Preset Name",
+        description="Name of the preset to apply",
+        default="default"
+    )
+
+    def execute(self, context):
+        scene = context.scene
+
+        try:
+            if self.preset_name == "meter":
+                # Preset per modelli in metri (scala 100% = 1 metro in Blender)
+                scene.openshelf_import_scale = 100
+                scene.openshelf_auto_center = True
+                scene.openshelf_apply_materials = True
+                scene.openshelf_add_metadata = True
+
+                self.report({'INFO'}, "Applied Meters preset (1:1 scale)")
+
+            elif self.preset_name == "millimeter":
+                # Preset per modelli in millimetri (scala 0.1% = 1mm -> 0.001m in Blender)
+                scene.openshelf_import_scale = 10  # 0.1 scale = 10%
+                scene.openshelf_auto_center = True
+                scene.openshelf_apply_materials = True
+                scene.openshelf_add_metadata = True
+
+                self.report({'INFO'}, "Applied Millimeters preset (0.1% scale)")
+
+            elif self.preset_name == "centimeter":
+                # Preset per modelli in centimetri (scala 1% = 1cm -> 0.01m in Blender)
+                scene.openshelf_import_scale = 100  # 1.0 scale = 100%
+                scene.openshelf_auto_center = True
+                scene.openshelf_apply_materials = True
+                scene.openshelf_add_metadata = True
+
+                self.report({'INFO'}, "Applied Centimeters preset (1% scale)")
+
+            elif self.preset_name == "high_quality":
+                # Preset alta qualità (legacy)
+                scene.openshelf_import_scale = 100
+                scene.openshelf_auto_center = True
+                scene.openshelf_apply_materials = True
+                scene.openshelf_add_metadata = True
+
+                self.report({'INFO'}, "Applied High Quality preset")
+
+            elif self.preset_name == "fast":
+                # Preset import veloce (legacy)
+                scene.openshelf_import_scale = 100
+                scene.openshelf_auto_center = True
+                scene.openshelf_apply_materials = False  # Skip materiali per velocità
+                scene.openshelf_add_metadata = False     # Skip metadati per velocità
+
+                self.report({'INFO'}, "Applied Fast Import preset")
+
+            else:
+                self.report({'WARNING'}, f"Unknown preset: {self.preset_name}")
+
+        except Exception as e:
+            print(f"OpenShelf: Error applying preset: {e}")
+            self.report({'ERROR'}, f"Error applying preset: {str(e)}")
+
+        return {'FINISHED'}
+
+
+class OPENSHELF_OT_reset_import_settings(bpy.types.Operator):
+    """Reset impostazioni import ai valori di default"""
+    bl_idname = "openshelf.reset_import_settings"
+    bl_label = "Reset Import Settings"
+    bl_description = "Reset import settings to default values"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        scene = context.scene
+
+        try:
+            # Valori di default
+            scene.openshelf_import_scale = 100
+            scene.openshelf_auto_center = True
+            scene.openshelf_apply_materials = True
+            scene.openshelf_add_metadata = True
+
+            self.report({'INFO'}, "Import settings reset to defaults")
+
+        except Exception as e:
+            print(f"OpenShelf: Error resetting import settings: {e}")
+            self.report({'ERROR'}, f"Error resetting settings: {str(e)}")
+
+        return {'FINISHED'}
+
+
+# Registrazione pannelli AGGIORNATA
 panels = [
     OPENSHELF_PT_main_panel,
     OPENSHELF_PT_search_panel,
     OPENSHELF_PT_progress_panel_colored,
     OPENSHELF_PT_results_panel,
+    OPENSHELF_PT_import_settings_panel,      # <-- AGGIUNTO
     OPENSHELF_PT_filter_results_panel,
     OPENSHELF_UL_search_results,
-    OPENSHELF_OT_show_asset_info,  # AGGIUNTO operatore mancante
+    OPENSHELF_OT_show_asset_info,
+    OPENSHELF_OT_apply_import_preset,        # <-- AGGIUNTO
+    OPENSHELF_OT_reset_import_settings,      # <-- AGGIUNTO
 ]
 
 def register():
