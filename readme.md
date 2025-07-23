@@ -19,17 +19,20 @@
 ## 📦 Installation
 
 ### Prerequisites
+
 - **Blender 4.2.0** or newer
 - **Internet connection** for downloading assets
 - **Python 3.10+** (included with Blender)
 
 ### Method 1: Download Release (Recommended)
+
 1. Download the latest `.zip` release
 2. In Blender: `Edit → Preferences → Add-ons → Install...`
 3. Select the downloaded ZIP file
 4. Enable "OpenShelf" in the add-ons list
 
 ### Method 2: Development Installation
+
 ```bash
 git clone https://github.com/yourusername/openshelf.git
 cd openshelf
@@ -47,6 +50,7 @@ This project is optimized for development with **Visual Studio Code** and the **
    - [Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
 
 2. **Clone Repository**:
+
    ```bash
    git clone https://github.com/yourusername/openshelf.git
    cd openshelf
@@ -101,10 +105,13 @@ The project includes a `.vscode/launch.json` for debugging:
 
 3. **Search Assets**:
    - Enter search terms in the main search box
-   - Apply filters for object type, material, chronology
    - Click "Search" to find assets
 
-4. **Import Assets**:
+4. **Filter Assets**:
+
+   - Apply filters for object type, material, chronology
+
+5. **Import Assets**:
    - Browse search results
    - Click "Import" on desired assets
    - Objects are imported with cultural metadata
@@ -112,18 +119,21 @@ The project includes a `.vscode/launch.json` for debugging:
 ### Advanced Features
 
 #### Search Filters
+
 - **Object Type**: `anello`, `vaso`, `coppa`, `lucerna`, etc.
 - **Material**: `oro`, `argilla`, `bronzo`, `marmo`, etc.
 - **Chronology**: `sec. I d.C.`, `età imperiale`, etc.
 - **Inventory Number**: Specific museum inventory numbers
 
 #### Quick Search Buttons
+
 - **Rings**: Search for ancient rings
-- **Vases**: Search for pottery and ceramics  
+- **Vases**: Search for pottery and ceramics
 - **Gold**: Search for gold objects
 - **1st Century**: Search by historical period
 
 #### Import Options
+
 - **Scale**: Adjust import scale (1-1000%)
 - **Auto Center**: Center objects at origin
 - **Materials**: Apply materials automatically
@@ -132,6 +142,7 @@ The project includes a `.vscode/launch.json` for debugging:
 ### Cultural Metadata
 
 Imported objects include rich metadata as custom properties:
+
 ```python
 obj["openshelf_id"]              # Unique asset ID
 obj["openshelf_name"]            # Display name
@@ -179,16 +190,19 @@ openshelf/
 ### Key Components
 
 #### Repository System
+
 - **BaseRepository**: Abstract base class for all repositories
 - **ErcolanoRepository**: Implementation for Ercolano museum data
 - **RepositoryRegistry**: Centralized repository management
 
 #### Loader System
+
 - **OBJLoader**: Reusable OBJ file import with cultural metadata
 - **GLTFLoader**: GLTF/GLB import support (future-ready)
 - **Modular Design**: Easy to add new 3D formats
 
 #### UI Components
+
 - **Search Panel**: Main search interface with filters
 - **Results Panel**: Display and interact with search results
 - **Import Panel**: Import settings and progress
@@ -199,6 +213,7 @@ openshelf/
 ### ✅ Active Repositories
 
 #### Ercolano (Museo Archeologico Virtuale di Ercolano)
+
 - **Assets**: ~2,100 archaeological artifacts
 - **Formats**: OBJ with textures
 - **Content**: Roman-era artifacts from Herculaneum
@@ -208,11 +223,13 @@ openshelf/
 ### 🔮 Planned Repositories
 
 #### Europeana
-- **Status**: Planned  
+
+- **Status**: Planned
 - **Assets**: 1M+ European cultural heritage items
 - **Formats**: Various
 
 #### Smithsonian Institution
+
 - **Status**: Planned
 - **Assets**: 500+ museum objects
 - **Formats**: OBJ, GLTF, USDZ
@@ -251,23 +268,25 @@ Access via `Edit → Preferences → Add-ons → OpenShelf`:
 ### Adding New Repositories
 
 1. **Create Repository Class**:
+
    ```python
    # repositories/my_repository.py
    class MyRepository(BaseRepository):
        def fetch_assets(self, limit=100):
            # Implement data fetching
            pass
-       
+
        def parse_raw_data(self, raw_data):
            # Convert to CulturalAsset objects
            pass
    ```
 
 2. **Register Repository**:
+
    ```python
    # repositories/__init__.py
    from .my_repository import MyRepository
-   
+
    def register():
        RepositoryRegistry.register_repository(MyRepository())
    ```
@@ -275,6 +294,7 @@ Access via `Edit → Preferences → Add-ons → OpenShelf`:
 ### Adding New 3D Formats
 
 1. **Create Loader**:
+
    ```python
    # utils/my_format_loader.py
    class MyFormatLoader:
@@ -285,6 +305,7 @@ Access via `Edit → Preferences → Add-ons → OpenShelf`:
    ```
 
 2. **Integrate in Import Operators**:
+
    ```python
    # operators/import_operators.py
    elif file_ext == '.myformat':
@@ -302,18 +323,21 @@ Access via `Edit → Preferences → Add-ons → OpenShelf`:
 ## 📝 Roadmap
 
 ### Version 1.1 (Next Release)
+
 - [ ] Thumbnail preview support
 - [ ] Download progress indicators
 - [ ] Advanced search filters
 - [ ] Material auto-assignment improvements
 
 ### Version 1.2 (Future)
+
 - [ ] GLTF/GLB support completion
 - [ ] Pompei repository integration
 - [ ] Batch import improvements
 - [ ] Search result favorites
 
 ### Version 2.0 (Long-term)
+
 - [ ] AI-powered semantic search
 - [ ] 3D preview in interface
 - [ ] Extended Matrix (EM) integration
@@ -331,18 +355,21 @@ Access via `Edit → Preferences → Add-ons → OpenShelf`:
 ### Common Issues
 
 **"No assets found"**
+
 - Check internet connection
 - Verify repository is online: Use "Test" button
 - Try different search terms
 - Clear cache and retry
 
 **"Import failed"**
+
 - Check file format support
 - Verify sufficient disk space
 - Review console for detailed errors
 - Try different asset
 
 **"Repository connection failed"**
+
 - Check firewall settings
 - Verify repository URL in preferences
 - Test with different repository
@@ -351,6 +378,7 @@ Access via `Edit → Preferences → Add-ons → OpenShelf`:
 ### Debug Mode
 
 Enable in `Preferences → OpenShelf → Advanced → Debug Mode`:
+
 - Detailed console logging
 - Network request debugging
 - File operation tracking
@@ -376,9 +404,9 @@ Enable in `Preferences → OpenShelf → Advanced → Debug Mode`:
 ## 📞 Contact
 
 - **Author**: Emanuel DemetrESCu
-- **Email**: emanuel.demetrescu@cnr.it
-- **Website**: https://extendedmatrix.org
-- **Repository**: https://github.com/zalmoxes-laran/openshelf
+- **Email**: <emanuel.demetrescu@cnr.it>
+- **Website**: <https://extendedmatrix.org>
+- **Repository**: <https://github.com/zalmoxes-laran/openshelf>
 
 ---
 

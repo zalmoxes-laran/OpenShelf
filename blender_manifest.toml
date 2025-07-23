@@ -1,8 +1,8 @@
-schema_version = "1.0.0"
+schema_version = "1.0.1"
 
 # OpenShelf - Blender Extension for Cultural Heritage Assets
 id = "openshelf"
-version = "1.0.0"
+version = "1.0.1"
 name = "OpenShelf"
 tagline = "Browse and import cultural heritage 3D assets from repositories"
 maintainer = "Emanuel Demetrescu <emanuel.demetrescu@cnr.it>"
