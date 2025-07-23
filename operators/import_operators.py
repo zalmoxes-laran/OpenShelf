@@ -112,10 +112,20 @@ class OPENSHELF_OT_import_asset(Operator):
         scene.openshelf_download_progress = 0
         scene.openshelf_status_message = "Starting download..."
 
+        # *** FIX CRITICO: Copia le proprietà in variabili locali ***
+        # NON passare self al thread - copia i valori necessari
+        thread_params = {
+            'use_cache': self.use_cache,
+            'import_scale': self.import_scale,
+            'auto_center': self.auto_center,
+            'apply_materials': self.apply_materials,
+            'add_metadata': self.add_metadata
+        }
+
         # Avvia download in thread separato
         import_thread = threading.Thread(
             target=self._download_thread,
-            args=(context, asset_data),
+            args=(context, asset_data, thread_params),  # *** CAMBIATO: Passa parametri invece di self ***
             daemon=True
         )
         import_thread.start()
@@ -128,8 +138,8 @@ class OPENSHELF_OT_import_asset(Operator):
 
         return {'FINISHED'}
 
-    def _download_thread(self, context, asset_data):
-        """Thread per download - NON scrive nelle proprietà della scena"""
+    def _download_thread(self, context, asset_data, thread_params):  # *** CAMBIATO: Aggiunto thread_params ***
+        """Thread per download - VERSIONE CORRETTA senza accesso a self.proprietà"""
         try:
             # Aggiorna stato thread-safe
             with _import_state.lock:
@@ -173,7 +183,7 @@ class OPENSHELF_OT_import_asset(Operator):
                     _import_state.error_message = "No valid 3D model URLs found"
                 return
 
-            # Download
+            # Download - *** FIX: USA thread_params invece di self ***
             download_manager = get_download_manager()
             archive_path = None
 
@@ -189,9 +199,10 @@ class OPENSHELF_OT_import_asset(Operator):
                         with _import_state.lock:
                             _import_state.download_progress = progress
 
+                # *** FIX CRITICO: Usa thread_params['use_cache'] invece di self.use_cache ***
                 archive_path = download_manager.download_file(
                     model_url,
-                    use_cache=self.use_cache,
+                    use_cache=thread_params['use_cache'],  # <-- CORRETTO
                     progress_callback=progress_callback
                 )
 
@@ -238,15 +249,15 @@ class OPENSHELF_OT_import_asset(Operator):
                     _import_state.error_message = "No supported 3D files found"
                 return
 
-            # Prepara dati per import nel main thread
+            # Prepara dati per import nel main thread - *** USA thread_params ***
             import_data = {
                 'model_path': found_files[0],
                 'asset_data': asset_data,
                 'import_settings': {
-                    'import_scale': self.import_scale,
-                    'auto_center': self.auto_center,
-                    'apply_materials': self.apply_materials,
-                    'add_metadata': self.add_metadata
+                    'import_scale': thread_params['import_scale'],      # <-- CORRETTO
+                    'auto_center': thread_params['auto_center'],        # <-- CORRETTO
+                    'apply_materials': thread_params['apply_materials'], # <-- CORRETTO
+                    'add_metadata': thread_params['add_metadata']       # <-- CORRETTO
                 }
             }
 
@@ -261,6 +272,16 @@ class OPENSHELF_OT_import_asset(Operator):
             traceback.print_exc()
             with _import_state.lock:
                 _import_state.error_message = f"Download error: {str(e)}"
+
+    def invoke(self, context, event):
+        # Popola proprietà con valori dalle preferenze scene
+        scene = context.scene
+        self.import_scale = scene.openshelf_import_scale / 100.0  # Converti in float
+        self.auto_center = scene.openshelf_auto_center
+        self.apply_materials = scene.openshelf_apply_materials
+        self.add_metadata = scene.openshelf_add_metadata
+
+        return self.execute(context)
 
     def _update_ui_state(self):
         """Aggiorna UI con stato dal thread - eseguito nel main thread"""
@@ -376,15 +397,7 @@ class OPENSHELF_OT_import_asset(Operator):
             with _import_state.lock:
                 _import_state.error_message = f"Import error: {str(e)}"
 
-    def invoke(self, context, event):
-        # Popola proprietà con valori dalle preferenze scene
-        scene = context.scene
-        self.import_scale = scene.openshelf_import_scale / 100.0
-        self.auto_center = scene.openshelf_auto_center
-        self.apply_materials = scene.openshelf_apply_materials
-        self.add_metadata = scene.openshelf_add_metadata
 
-        return self.execute(context)
 
 class OPENSHELF_OT_batch_import(Operator):
     """Importa multipli asset in batch"""
