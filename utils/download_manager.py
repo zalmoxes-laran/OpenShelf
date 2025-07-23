@@ -15,7 +15,6 @@ import hashlib
 import json
 import time
 import threading
-
 class DownloadProgress:
     """Classe per tracciare il progresso del download"""
 
@@ -53,7 +52,18 @@ class DownloadCache:
             cache_dir = os.path.join(tempfile.gettempdir(), "openshelf_cache")
 
         self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(exist_ok=True)
+
+        # FIX: Crea directory e parents se non esistono, con gestione errori
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            print(f"OpenShelf: Using cache directory: {self.cache_dir}")
+        except Exception as e:
+            print(f"OpenShelf: Error creating cache directory {self.cache_dir}: {e}")
+            # Fallback a directory temporanea
+            fallback_dir = os.path.join(tempfile.gettempdir(), "openshelf_cache_fallback")
+            self.cache_dir = Path(fallback_dir)
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            print(f"OpenShelf: Using fallback cache directory: {self.cache_dir}")
 
         self.index_file = self.cache_dir / "cache_index.json"
         self.max_cache_size = 1024 * 1024 * 500  # 500MB max cache
@@ -524,8 +534,28 @@ class DownloadManager:
 _global_download_manager = None
 
 def get_download_manager() -> DownloadManager:
-    """Ottiene l'istanza globale del download manager"""
+    """Ottiene l'istanza globale del download manager CON SUPPORTO DIRECTORY PERSONALIZZATA"""
     global _global_download_manager
-    if _global_download_manager is None:
-        _global_download_manager = DownloadManager()
+
+    # Ottieni directory cache dalle preferenze
+    cache_dir = None
+    try:
+        import bpy
+        # Cerca nelle preferenze addon
+        for addon_name in bpy.context.preferences.addons.keys():
+            if 'openshelf' in addon_name.lower():
+                prefs = bpy.context.preferences.addons[addon_name].preferences
+                if hasattr(prefs, 'custom_cache_directory') and prefs.custom_cache_directory.strip():
+                    cache_dir = prefs.custom_cache_directory.strip()
+                    break
+    except:
+        pass  # Fallback se non riesce a leggere preferenze
+
+    # Se cache_dir è cambiata o manager non esiste, ricrea
+    if (_global_download_manager is None or
+        (cache_dir and str(_global_download_manager.cache.cache_dir) != cache_dir)):
+
+        print(f"OpenShelf: Creating download manager with cache dir: {cache_dir or 'default'}")
+        _global_download_manager = DownloadManager(cache_dir)
+
     return _global_download_manager

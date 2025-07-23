@@ -77,6 +77,31 @@ class OPENSHELF_PT_statistics_panel(Panel):
                 avg_quality = sum(quality_scores) / len(quality_scores)
                 col.label(text=f"Avg quality: {avg_quality:.0f}%")
 
+
+        # Cache info concisa (senza pulsanti duplicati)
+        box = layout.box()
+        box.label(text="Cache Info", icon='FILE_CACHE')
+
+        col = box.column(align=True)
+        col.scale_y = 0.8
+
+        try:
+            from ..utils.download_manager import get_download_manager
+            dm = get_download_manager()
+            cache_stats = dm.get_cache_statistics()
+
+            col.label(text=f"Cache: {cache_stats['file_count']} files")
+            cache_size_mb = cache_stats['cache_size'] / (1024*1024)
+            col.label(text=f"Size: {cache_size_mb:.1f} MB")
+
+        except Exception:
+            col.label(text="Cache: Not available")
+
+        # Link alle preferenze per gestione cache
+        col.separator()
+        col.operator("preferences.addon_show", text="Manage Cache", icon='PREFERENCES').module = __package__.split('.')[0]
+
+        '''
         # Info cache
         box = layout.box()
         box.label(text="Cache Info", icon='FILE_CACHE')
@@ -102,6 +127,7 @@ class OPENSHELF_PT_statistics_panel(Panel):
         clear_op = row.operator("openshelf.clear_repository_cache", text="Clear", icon='TRASH')
         clear_op.repository_name = "all"
         clear_op.confirm = True
+        '''
 
 class OPENSHELF_PT_object_info(Panel):
     """Pannello informazioni oggetto OpenShelf"""
@@ -290,13 +316,13 @@ class OPENSHELF_PT_quick_actions(Panel):
         romano_op.search_field = "search"
 
         # Gestione cache
-        box = layout.box()
-        box.label(text="Cache Management", icon='FILE_CACHE')
+        #box = layout.box()
+        #box.label(text="Cache Management", icon='FILE_CACHE')
 
-        col = box.column(align=True)
-        clear_op = col.operator("openshelf.clear_repository_cache", text="Clear Cache", icon='TRASH')
-        clear_op.repository_name = "all"
-        clear_op.confirm = True
+        #col = box.column(align=True)
+        #clear_op = col.operator("openshelf.clear_repository_cache", text="Clear Cache", icon='TRASH')
+        #clear_op.repository_name = "all"
+        #clear_op.confirm = True
 
         # Utilità
         box = layout.box()
