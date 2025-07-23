@@ -145,7 +145,7 @@ class OPENSHELF_OT_modal_import_asset(Operator):
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        """Gestisce il loop principale del modal operator"""
+        """Gestisce il loop principale del modal operator - CON DEBUG PROGRESS"""
         scene = context.scene
 
         # Check timeout globale
@@ -157,6 +157,7 @@ class OPENSHELF_OT_modal_import_asset(Operator):
 
         # Gestione eventi
         if event.type == 'TIMER':
+
             # FIX: Aggiorna progress fluido ad ogni timer
             self._update_smooth_progress(context)
             return self._handle_timer_step(context)
@@ -166,14 +167,46 @@ class OPENSHELF_OT_modal_import_asset(Operator):
 
         return {'PASS_THROUGH'}
 
+    def _debug_progress_panel_visibility(self, context):
+        """Debug: verifica se il pannello progress è visibile"""
+        scene = context.scene
+
+        is_downloading = getattr(scene, 'openshelf_is_downloading', False)
+        progress = getattr(scene, 'openshelf_download_progress', 0)
+        status = getattr(scene, 'openshelf_status_message', '')
+
+        print(f"OpenShelf: Progress panel debug:")
+        print(f"  - is_downloading: {is_downloading}")
+        print(f"  - progress: {progress}")
+        print(f"  - status: '{status}'")
+        print(f"  - panel should be visible: {is_downloading}")
+
+        # Verifica se i pannelli OpenShelf sono registrati
+        panel_found = False
+        if hasattr(bpy.types, 'OPENSHELF_PT_progress_panel_colored'):
+            panel_found = True
+            print(f"  - progress panel class found: YES")
+
+            # Try to check panel poll
+            try:
+                panel_class = bpy.types.OPENSHELF_PT_progress_panel_colored
+                poll_result = panel_class.poll(context) if hasattr(panel_class, 'poll') else True
+                print(f"  - panel poll result: {poll_result}")
+            except Exception as e:
+                print(f"  - panel poll error: {e}")
+        else:
+            print(f"  - progress panel class found: NO")
+
+        return panel_found
+
     def _update_smooth_progress(self, context):
-        """FIX: Aggiorna progress bar in modo fluido basato sul tempo"""
+        """FIX: Aggiorna progress bar MOLTO più aggressivamente"""
         scene = context.scene
         current_time = time.time()
         elapsed = current_time - self._start_time
 
         # Progress baseline basato sul tempo trascorso
-        time_progress = min(90, (elapsed / self._estimated_total_time) * 90)
+        time_progress = min(85, (elapsed / self._estimated_total_time) * 85)
 
         # Combina con progress specifico dello step
         step_progress = self._get_step_progress_baseline()
@@ -181,20 +214,30 @@ class OPENSHELF_OT_modal_import_asset(Operator):
         # Usa il maggiore tra tempo e step progress
         target_progress = max(time_progress, step_progress)
 
-        # Smooth interpolation verso il target
+        # Smooth interpolation più rapida
         diff = target_progress - self._smooth_progress_current
         if abs(diff) > 0.1:
-            # Movimento fluido verso il target (velocità proporzionale alla differenza)
-            movement = diff * 0.1  # 10% della differenza per frame
+            # Movimento più rapido (20% invece di 10%)
+            movement = diff * 0.2
             self._smooth_progress_current += movement
         else:
             self._smooth_progress_current = target_progress
 
-        # Aggiorna UI se è cambiato significativamente
+        # SEMPRE aggiorna UI se cambiato anche di poco
         new_progress = int(self._smooth_progress_current)
-        if abs(new_progress - scene.openshelf_download_progress) >= 1:
+        if new_progress != scene.openshelf_download_progress:
             scene.openshelf_download_progress = new_progress
+
+            # FORCE UI update immediato e aggressivo
             self._force_ui_update(context)
+
+            # EXTRA: Try another way to trigger UI refresh
+            try:
+                if hasattr(context, 'window'):
+                    context.window.cursor_modal_set('WAIT')
+                    context.window.cursor_modal_restore()
+            except:
+                pass
 
     def _get_step_progress_baseline(self) -> float:
         """Ottiene progress baseline per lo step corrente"""
@@ -418,25 +461,44 @@ class OPENSHELF_OT_modal_import_asset(Operator):
         return {'RUNNING_MODAL'}
 
     def _force_ui_update(self, context):
-        """Force immediate UI update - versione migliorata"""
+        """Force immediate UI update - versione CORRETTA senza errori"""
         try:
-            # Update delle aree 3D
-            for area in context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
+            # 1. Update del window manager (principale)
+            if hasattr(context, 'window_manager'):
+                context.window_manager.update_tag()
 
-            # Force update del window manager
-            context.window_manager.update_tag()
+            # 2. Update di TUTTE le aree 3D in tutti gli screen
+            if hasattr(bpy, 'data') and hasattr(bpy.data, 'screens'):
+                for screen in bpy.data.screens:
+                    for area in screen.areas:
+                        if area.type == 'VIEW_3D':
+                            area.tag_redraw()
+                            # Force update anche delle regioni
+                            for region in area.regions:
+                                if region.type == 'UI':
+                                    region.tag_redraw()
 
-            # Update dell'intero screen se necessario
-            for screen in bpy.data.screens:
-                for area in screen.areas:
+            # 3. Fallback: current context areas
+            if hasattr(context, 'screen') and hasattr(context.screen, 'areas'):
+                for area in context.screen.areas:
                     if area.type == 'VIEW_3D':
                         area.tag_redraw()
+                        for region in area.regions:
+                            if region.type == 'UI':
+                                region.tag_redraw()
+
+            # 4. RIMOSSO: update_tag che causava errori
+            # Scene update (solo se il metodo esiste)
+            if hasattr(context, 'scene'):
+                if hasattr(context.scene, 'update_tag'):
+                    context.scene.update_tag()
+
+            # 5. RIMOSSO: ViewLayer.update_tag che non esiste sempre
+            # Non chiamare context.view_layer.update_tag() che causava l'errore
 
         except Exception as e:
-            # Fallback silenzioso se il context non è disponibile
-            pass
+            # Fallback molto silenzioso - solo per errori gravi
+            pass  # Non stampare più errori "non-critical"
 
     def _step_extract(self, context):
         """Step 2: Estrazione con progress fluido"""

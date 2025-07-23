@@ -160,65 +160,154 @@ class OPENSHELF_PT_search_panel(Panel):
             box.operator("openshelf.save_search", text="Save Search", icon='FILE_TICK')
 
 class OPENSHELF_PT_progress_panel_colored(Panel):
-    """Pannello progress con colori"""
-    bl_label = "Download Progress"
+    """Pannello progress MOLTO PIÙ VISIBILE"""
+    bl_label = "📥 DOWNLOADING..."
     bl_idname = "OPENSHELF_PT_progress_panel_colored"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 2
+    bl_order = 4  # MOLTO IN ALTO nella lista
 
     @classmethod
     def poll(cls, context):
         scene = context.scene
-        return getattr(scene, 'openshelf_is_downloading', False)
+        is_downloading = getattr(scene, 'openshelf_is_downloading', False)
+        return is_downloading
+
+    def draw_header(self, context):
+        """Header con icona animata"""
+        layout = self.layout
+        scene = context.scene
+        progress = getattr(scene, 'openshelf_download_progress', 0)
+
+        # Icona che cambia in base al progresso per dare senso di movimento
+        if progress < 25:
+            icon = 'IMPORT'
+        elif progress < 50:
+            icon = 'URL'
+        elif progress < 75:
+            icon = 'PACKAGE'
+        else:
+            icon = 'CHECKMARK'
+
+        layout.label(text=f"DOWNLOADING {progress}%", icon=icon)
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
 
-        box = layout.box()
-        box.label(text="Downloading Asset", icon='IMPORT')
+        # BOX PRINCIPALE MOLTO EVIDENTE
+        main_box = layout.box()
+        main_box.alert = True  # Colore rosso/arancione per attirare attenzione
 
-        # Status message
+        # Header con info download
+        header_row = main_box.row()
+        header_row.scale_y = 1.5
+        header_row.label(text="🚀 DOWNLOAD IN PROGRESS", icon='IMPORT')
+
+        # Status message GRANDE
         status_msg = getattr(scene, 'openshelf_status_message', 'Downloading...')
-        box.label(text=status_msg)
+        status_box = main_box.box()
+        status_row = status_box.row()
+        status_row.scale_y = 1.3
+        status_row.label(text=status_msg, icon='INFO')
 
         progress = getattr(scene, 'openshelf_download_progress', 0)
 
-        # Progress bar usando split layout con colori
-        col = box.column()
-        bg_row = col.row(align=True)
-        bg_row.scale_y = 2.0
+        # BARRA DI PROGRESSO MOLTO PIÙ VISIBILE
+        progress_box = main_box.box()
+        progress_box.label(text="Progress:", icon='TIME')
 
-        # Calcola larghezza barra
-        progress_width = max(1, progress // 5)  # 1-20 steps
-        remaining_width = 20 - progress_width
+        # Percentuale grande
+        perc_row = progress_box.row()
+        perc_row.scale_y = 2.0
+        perc_row.label(text=f"{progress}%", icon='KEYTYPE_JITTER_VEC')
 
-        # Parte riempita (verde)
-        if progress_width > 0:
-            filled_row = bg_row.row(align=True)
-            filled_row.alert = False
-            filled_row.enabled = True
-            for i in range(progress_width):
-                filled_row.label(text="█")
+        # Barra visuale migliorata - USA CARATTERI PIÙ SEMPLICI
+        bar_row = progress_box.row(align=True)
+        bar_row.scale_y = 1.5
 
-        # Parte vuota (grigia)
-        if remaining_width > 0:
-            empty_row = bg_row.row(align=True)
-            empty_row.enabled = False
-            for i in range(remaining_width):
-                empty_row.label(text="█")
+        # Calcola barra (20 caratteri totali)
+        bar_length = 20
+        filled_length = int((progress / 100) * bar_length)
 
-        # Percentuale
-        perc_row = col.row()
-        perc_row.scale_y = 1.5
-        perc_row.label(text=f"{progress}% Complete", icon='INFO')
+        # Usa caratteri ASCII semplici che funzionano sempre
+        filled_char = "|"
+        empty_char = "-"
 
-        # Cancel button se disponibile
+        bar_string = filled_char * filled_length + empty_char * (bar_length - filled_length)
+        bar_row.label(text=f"[{bar_string}]")
+
+        # INFO AGGIUNTIVE se disponibili
+        if progress > 0:
+            info_col = progress_box.column(align=True)
+            info_col.scale_y = 0.8
+
+            # Calcola tempo trascorso (dummy - dovrebbe essere passato dal modal operator)
+            # Per ora mostra solo progresso
+            if progress < 100:
+                info_col.label(text=f"⏱️ Progress: {progress}/100")
+
+                # Stima grossolana tempo rimanente
+                if progress > 10:
+                    estimated_total = 100 / (progress / 30)  # Stima 30 secondi come esempio
+                    remaining = estimated_total - 30
+                    if remaining > 0:
+                        info_col.label(text=f"⏳ Est. remaining: {remaining:.0f}s")
+            else:
+                info_col.label(text="✅ Download complete!")
+
+        # Cancel button GRANDE
+        cancel_box = main_box.box()
+        cancel_row = cancel_box.row()
+        cancel_row.scale_y = 1.5
+
         if check_operator_available('openshelf.cancel_import'):
-            col.operator("openshelf.cancel_import", text="Cancel Download", icon='CANCEL')
+            cancel_row.operator("openshelf.cancel_import", text="❌ CANCEL DOWNLOAD", icon='CANCEL')
+        else:
+            cancel_row.label(text="❌ Cancel not available", icon='ERROR')
+
+        # DEBUG INFO (rimuovere in produzione)
+        if getattr(scene, 'openshelf_debug_mode', False):
+            debug_box = layout.box()
+            debug_box.label(text="DEBUG INFO:", icon='CONSOLE')
+            debug_col = debug_box.column(align=True)
+            debug_col.scale_y = 0.7
+            debug_col.label(text=f"is_downloading: {getattr(scene, 'openshelf_is_downloading', False)}")
+            debug_col.label(text=f"progress: {progress}")
+            debug_col.label(text=f"status: '{status_msg}'")
+
+class OPENSHELF_PT_download_status_simple(Panel):
+    """Pannello status download SEMPLICE sempre visibile"""
+    bl_label = "Download Status"
+    bl_idname = "OPENSHELF_PT_download_status_simple"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OpenShelf"
+    bl_parent_id = "OPENSHELF_PT_main_panel"
+    bl_order = 0  # PRIMO pannello
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+
+        # Sempre mostra lo stato corrente
+        is_downloading = getattr(scene, 'openshelf_is_downloading', False)
+        progress = getattr(scene, 'openshelf_download_progress', 0)
+        status = getattr(scene, 'openshelf_status_message', 'Ready')
+
+        # Status box
+        box = layout.box()
+
+        if is_downloading:
+            box.alert = True
+            box.label(text=f"⬇️ {progress}%", icon='IMPORT')
+            box.label(text=status)
+        else:
+            box.label(text="✅ Ready", icon='CHECKMARK')
+            if status and status != 'Ready':
+                box.label(text=status)
 
 class OPENSHELF_PT_results_panel(Panel):
     """Pannello risultati ricerca - FIX ROBUSTEZZA"""
@@ -429,7 +518,7 @@ class OPENSHELF_PT_import_settings_panel(Panel):
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 5
+    bl_order = 6
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -503,7 +592,7 @@ class OPENSHELF_PT_filter_results_panel(Panel):
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 6
+    bl_order = 7
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -575,7 +664,7 @@ class OPENSHELF_PT_filter_results_panel(Panel):
 
 # Lista per i risultati di ricerca
 class OPENSHELF_UL_search_results(bpy.types.UIList):
-    """Lista UI per risultati ricerca"""
+    """Lista UI per risultati ricerca - VERSIONE CORRETTA"""
     bl_idname = "OPENSHELF_UL_search_results"
 
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
@@ -589,24 +678,35 @@ class OPENSHELF_UL_search_results(bpy.types.UIList):
             elif 'statua' in item.object_type.lower():
                 type_icon = 'OUTLINER_OB_ARMATURE'
 
-            # Nome principale
-            layout.label(text=item.name, icon=type_icon)
+            # MAIN ROW - cliccabile per selezione
+            main_row = layout.row(align=True)
 
-            # Info aggiuntive
-            sub = layout.row(align=True)
-            sub.scale_x = 0.7
-            sub.scale_y = 0.8
+            # Operator per selezione quando si clicca
+            select_op = main_row.operator("openshelf.select_result", text="", icon=type_icon, emboss=False)
+            select_op.result_index = index
+
+            # Nome principale
+            name_col = main_row.column()
+            name_col.label(text=item.name)
+
+            # Info aggiuntive sulla destra
+            info_col = main_row.column()
+            info_col.alignment = 'RIGHT'
+            info_col.scale_x = 0.7
+            info_col.scale_y = 0.8
 
             # Repository
-            sub.label(text=item.repository, icon='BOOKMARKS')
+            info_col.label(text=item.repository, icon='BOOKMARKS')
 
             # Qualità se disponibile
             if item.quality_score > 0:
-                sub.label(text=f"{item.quality_score}%", icon='KEYTYPE_JITTER_VEC')
+                info_col.label(text=f"{item.quality_score}%", icon='KEYTYPE_JITTER_VEC')
 
         elif self.layout_type == 'GRID':
             layout.alignment = 'CENTER'
-            layout.label(text="", icon=type_icon)
+            # Grid layout con operatore di selezione
+            select_op = layout.operator("openshelf.select_result", text="", icon=type_icon, emboss=False)
+            select_op.result_index = index
 
 # Operatori per preset e utilità - con controlli robustezza
 class OPENSHELF_OT_apply_import_preset(bpy.types.Operator):
@@ -678,7 +778,7 @@ class OPENSHELF_PT_cache_quick_panel(Panel):
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 4  # Tra results e import settings
+    bl_order = 5  # Tra results e import settings
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -824,9 +924,37 @@ class OPENSHELF_OT_open_cache_preferences(bpy.types.Operator):
 
         return {'FINISHED'}
 
+class OPENSHELF_OT_select_result(bpy.types.Operator):
+    """Seleziona un risultato specifico"""
+    bl_idname = "openshelf.select_result"
+    bl_label = "Select Result"
+    bl_description = "Select this search result"
+    bl_options = {'REGISTER'}
+
+    result_index: bpy.props.IntProperty(default=0)
+
+    def execute(self, context):
+        scene = context.scene
+
+        if (hasattr(scene, 'openshelf_search_results') and
+            0 <= self.result_index < len(scene.openshelf_search_results)):
+
+            scene.openshelf_selected_result_index = self.result_index
+
+            # Force UI redraw
+            for area in context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+
+            selected_asset = scene.openshelf_search_results[self.result_index]
+            print(f"OpenShelf: Selected asset {self.result_index}: {selected_asset.name}")
+
+        return {'FINISHED'}
+
 # Registrazione pannelli
 panels = [
     OPENSHELF_PT_main_panel,
+    #OPENSHELF_PT_download_status_simple,
     OPENSHELF_PT_search_panel,
     OPENSHELF_PT_progress_panel_colored,
     OPENSHELF_PT_results_panel,
@@ -837,6 +965,7 @@ panels = [
     OPENSHELF_OT_apply_import_preset,
     OPENSHELF_OT_reset_import_settings,
     OPENSHELF_OT_open_cache_preferences,  # NUOVO operatore
+    OPENSHELF_OT_select_result,
 ]
 def register():
     """Registra i pannelli search"""
