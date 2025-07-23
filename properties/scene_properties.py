@@ -1,7 +1,7 @@
 """
-OpenShelf Scene Properties - VERSIONE CORRETTA
+OpenShelf Scene Properties - VERSIONE ROBUSTA PER SVILUPPO
 Definisce le proprietà scene per ricerca, filtri e risultati
-AGGIUNTO: openshelf_selected_result_index
+FIX: Registrazione robusta che gestisce reload durante sviluppo
 """
 
 import bpy
@@ -93,11 +93,11 @@ class OpenShelfAssetProperty(PropertyGroup):
 
 def get_repository_items(self, context):
     """Callback per ottenere lista repository disponibili"""
-    from ..repositories.registry import RepositoryRegistry
-
-    items = [('all', 'All Repositories', 'Search in all repositories', 'WORLD_DATA', 0)]
-
     try:
+        from ..repositories.registry import RepositoryRegistry
+
+        items = [('all', 'All Repositories', 'Search in all repositories', 'WORLD_DATA', 0)]
+
         available_repos = RepositoryRegistry.get_available_repositories()
         for i, repo_name in enumerate(available_repos):
             items.append((
@@ -109,177 +109,268 @@ def get_repository_items(self, context):
             ))
     except Exception as e:
         print(f"OpenShelf: Error getting repositories: {e}")
+        # Fallback se registry non disponibile
+        items = [('all', 'All Repositories', 'Search in all repositories', 'WORLD_DATA', 0)]
 
     return items
 
 def search_update_callback(self, context):
     """Callback quando cambia il testo di ricerca"""
-    # Implementa ricerca in tempo reale se desiderato
-    # Per ora non facciamo nulla per evitare troppe chiamate
     pass
 
-def register():
-    """Registra le proprietà scene"""
+def selection_update_callback(self, context):
+    """Callback quando cambia la selezione asset"""
+    scene = context.scene
 
-    # Registra il PropertyGroup
-    bpy.utils.register_class(OpenShelfAssetProperty)
+    try:
+        selected_index = scene.openshelf_selected_result_index
+        if hasattr(scene, 'openshelf_search_results') and len(scene.openshelf_search_results) > selected_index:
+            selected_asset = scene.openshelf_search_results[selected_index]
+            print(f"OpenShelf: Selected asset changed to: {selected_asset.name} (ID: {selected_asset.asset_id})")
+
+        # Force UI redraw
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+
+    except Exception as e:
+        print(f"OpenShelf: Error in selection update callback: {e}")
+
+def safe_register_class(cls):
+    """Registra classe solo se non è già registrata"""
+    try:
+        # Controlla se la classe è già registrata
+        if hasattr(bpy.types, cls.__name__):
+            print(f"OpenShelf: Class {cls.__name__} already registered, skipping")
+            return False
+
+        bpy.utils.register_class(cls)
+        print(f"OpenShelf: Registered class {cls.__name__}")
+        return True
+
+    except ValueError as e:
+        if "already registered" in str(e):
+            print(f"OpenShelf: Class {cls.__name__} already registered (caught exception)")
+            return False
+        else:
+            print(f"OpenShelf: Error registering {cls.__name__}: {e}")
+            raise
+
+def safe_unregister_class(cls):
+    """Deregistra classe solo se è registrata"""
+    try:
+        # Controlla se la classe è registrata
+        if hasattr(bpy.types, cls.__name__):
+            bpy.utils.unregister_class(cls)
+            print(f"OpenShelf: Unregistered class {cls.__name__}")
+            return True
+        else:
+            print(f"OpenShelf: Class {cls.__name__} not registered, skipping unregister")
+            return False
+
+    except Exception as e:
+        print(f"OpenShelf: Error unregistering {cls.__name__}: {e}")
+        return False
+
+def safe_add_scene_property(prop_name, prop_value):
+    """Aggiunge proprietà alla scena solo se non esiste già"""
+    try:
+        if hasattr(bpy.types.Scene, prop_name):
+            print(f"OpenShelf: Scene property {prop_name} already exists, skipping")
+            return False
+
+        setattr(bpy.types.Scene, prop_name, prop_value)
+        print(f"OpenShelf: Added scene property {prop_name}")
+        return True
+
+    except Exception as e:
+        print(f"OpenShelf: Error adding scene property {prop_name}: {e}")
+        return False
+
+def safe_remove_scene_property(prop_name):
+    """Rimuove proprietà dalla scena solo se exists"""
+    try:
+        if hasattr(bpy.types.Scene, prop_name):
+            delattr(bpy.types.Scene, prop_name)
+            print(f"OpenShelf: Removed scene property {prop_name}")
+            return True
+        else:
+            print(f"OpenShelf: Scene property {prop_name} not found, skipping removal")
+            return False
+
+    except Exception as e:
+        print(f"OpenShelf: Error removing scene property {prop_name}: {e}")
+        return False
+
+def register():
+    """Registra le proprietà scene - VERSIONE ROBUSTA"""
+
+    print("OpenShelf: Registering scene properties...")
+
+    # Registra il PropertyGroup con controllo
+    safe_register_class(OpenShelfAssetProperty)
 
     # === RICERCA E FILTRI ===
-    bpy.types.Scene.openshelf_search_text = StringProperty(
+    safe_add_scene_property('openshelf_search_text', StringProperty(
         name="Search",
         description="Search in asset names and descriptions",
         default="",
         update=search_update_callback
-    )
+    ))
 
-    bpy.types.Scene.openshelf_active_repository = EnumProperty(
+    safe_add_scene_property('openshelf_active_repository', EnumProperty(
         name="Repository",
         description="Select repository to search",
         items=get_repository_items,
         default=0
-    )
+    ))
 
-    bpy.types.Scene.openshelf_filter_type = StringProperty(
+    safe_add_scene_property('openshelf_filter_type', StringProperty(
         name="Object Type",
         description="Filter by object type (e.g., 'anello', 'fritillus')",
         default=""
-    )
+    ))
 
-    bpy.types.Scene.openshelf_filter_material = StringProperty(
+    safe_add_scene_property('openshelf_filter_material', StringProperty(
         name="Material",
         description="Filter by material (e.g., 'oro', 'argilla')",
         default=""
-    )
+    ))
 
-    bpy.types.Scene.openshelf_filter_chronology = StringProperty(
+    safe_add_scene_property('openshelf_filter_chronology', StringProperty(
         name="Chronology",
         description="Filter by chronological period (e.g., 'sec. I')",
         default=""
-    )
+    ))
 
-    bpy.types.Scene.openshelf_filter_inventory = StringProperty(
+    safe_add_scene_property('openshelf_filter_inventory', StringProperty(
         name="Inventory Number",
         description="Filter by inventory number",
         default=""
-    )
+    ))
 
     # === OPZIONI RICERCA ===
-    bpy.types.Scene.openshelf_search_limit = IntProperty(
+    safe_add_scene_property('openshelf_search_limit', IntProperty(
         name="Search Limit",
         description="Maximum number of results to show",
         default=50,
         min=10,
         max=500
-    )
+    ))
 
-    bpy.types.Scene.openshelf_auto_search = BoolProperty(
+    safe_add_scene_property('openshelf_auto_search', BoolProperty(
         name="Auto Search",
         description="Search automatically while typing",
         default=False
-    )
+    ))
 
     # === RISULTATI E CACHE ===
-    bpy.types.Scene.openshelf_search_results = CollectionProperty(
+    safe_add_scene_property('openshelf_search_results', CollectionProperty(
         type=OpenShelfAssetProperty,
         name="Search Results",
         description="Current search results"
-    )
+    ))
 
-    bpy.types.Scene.openshelf_assets_cache = CollectionProperty(
+    safe_add_scene_property('openshelf_assets_cache', CollectionProperty(
         type=OpenShelfAssetProperty,
         name="Assets Cache",
         description="Cache of all fetched assets"
-    )
+    ))
 
-    # FIX: AGGIUNTA PROPRIETÀ MANCANTE PER INDICE SELEZIONATO
-    bpy.types.Scene.openshelf_selected_result_index = IntProperty(
+    # INDICE SELEZIONE CON CALLBACK
+    safe_add_scene_property('openshelf_selected_result_index', IntProperty(
         name="Selected Result Index",
         description="Index of currently selected search result",
         default=0,
-        min=0
-    )
+        min=0,
+        update=selection_update_callback
+    ))
 
     # === STATISTICHE ===
-    bpy.types.Scene.openshelf_search_count = IntProperty(
+    safe_add_scene_property('openshelf_search_count', IntProperty(
         name="Search Results Count",
         description="Number of search results",
         default=0
-    )
+    ))
 
-    bpy.types.Scene.openshelf_total_available = IntProperty(
+    safe_add_scene_property('openshelf_total_available', IntProperty(
         name="Total Available",
         description="Total number of assets available in repositories",
         default=0
-    )
+    ))
 
-    bpy.types.Scene.openshelf_last_search = StringProperty(
+    safe_add_scene_property('openshelf_last_search', StringProperty(
         name="Last Search",
         description="Last search query performed",
         default=""
-    )
+    ))
 
-    bpy.types.Scene.openshelf_last_repository = StringProperty(
+    safe_add_scene_property('openshelf_last_repository', StringProperty(
         name="Last Repository",
         description="Last repository searched",
         default=""
-    )
+    ))
 
     # === STATO APPLICAZIONE ===
-    bpy.types.Scene.openshelf_is_searching = BoolProperty(
+    safe_add_scene_property('openshelf_is_searching', BoolProperty(
         name="Is Searching",
         description="Whether a search is currently in progress",
         default=False
-    )
+    ))
 
-    bpy.types.Scene.openshelf_is_downloading = BoolProperty(
+    safe_add_scene_property('openshelf_is_downloading', BoolProperty(
         name="Is Downloading",
         description="Whether a download is currently in progress",
         default=False
-    )
+    ))
 
-    bpy.types.Scene.openshelf_download_progress = IntProperty(
+    safe_add_scene_property('openshelf_download_progress', IntProperty(
         name="Download Progress",
         description="Current download progress (0-100)",
         default=0,
         min=0,
         max=100
-    )
+    ))
 
-    bpy.types.Scene.openshelf_status_message = StringProperty(
+    safe_add_scene_property('openshelf_status_message', StringProperty(
         name="Status Message",
         description="Current status message",
         default="Ready"
-    )
+    ))
 
     # === PREFERENZE UTENTE ===
-    bpy.types.Scene.openshelf_import_scale = IntProperty(
+    safe_add_scene_property('openshelf_import_scale', IntProperty(
         name="Import Scale",
         description="Scale factor for imported objects (percentage)",
         default=100,
         min=1,
         max=1000
-    )
+    ))
 
-    bpy.types.Scene.openshelf_auto_center = BoolProperty(
+    safe_add_scene_property('openshelf_auto_center', BoolProperty(
         name="Auto Center",
         description="Automatically center imported objects",
         default=True
-    )
+    ))
 
-    bpy.types.Scene.openshelf_apply_materials = BoolProperty(
+    safe_add_scene_property('openshelf_apply_materials', BoolProperty(
         name="Apply Materials",
         description="Automatically apply materials when importing",
         default=True
-    )
+    ))
 
-    bpy.types.Scene.openshelf_add_metadata = BoolProperty(
+    safe_add_scene_property('openshelf_add_metadata', BoolProperty(
         name="Add Metadata",
         description="Add cultural metadata as custom properties",
         default=True
-    )
+    ))
+
+    print("OpenShelf: Scene properties registration completed")
 
 def unregister():
-    """Rimuove le proprietà scene"""
+    """Rimuove le proprietà scene - VERSIONE ROBUSTA"""
+
+    print("OpenShelf: Unregistering scene properties...")
 
     # Lista di tutte le proprietà da rimuovere
     properties = [
@@ -293,7 +384,7 @@ def unregister():
         'openshelf_auto_search',
         'openshelf_search_results',
         'openshelf_assets_cache',
-        'openshelf_selected_result_index',  # AGGIUNTO
+        'openshelf_selected_result_index',
         'openshelf_search_count',
         'openshelf_total_available',
         'openshelf_last_search',
@@ -308,9 +399,11 @@ def unregister():
         'openshelf_add_metadata',
     ]
 
+    # Rimuovi proprietà scene
     for prop in properties:
-        if hasattr(bpy.types.Scene, prop):
-            delattr(bpy.types.Scene, prop)
+        safe_remove_scene_property(prop)
 
     # Deregistra il PropertyGroup
-    bpy.utils.unregister_class(OpenShelfAssetProperty)
+    safe_unregister_class(OpenShelfAssetProperty)
+
+    print("OpenShelf: Scene properties unregistration completed")

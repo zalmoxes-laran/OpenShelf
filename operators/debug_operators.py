@@ -241,12 +241,68 @@ class OPENSHELF_OT_test_cache_info(Operator):
         print(f"{'='*50}\n")
         return {'FINISHED'}
 
+class OPENSHELF_OT_debug_selection(Operator):
+    """Debug selezione asset corrente"""
+    bl_idname = "openshelf.debug_selection"
+    bl_label = "Debug Selection"
+    bl_description = "Debug current asset selection"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        scene = context.scene
+
+        print("\n" + "="*50)
+        print("OpenShelf: DEBUG ASSET SELECTION")
+        print("="*50)
+
+        try:
+            # Info selezione corrente
+            selected_index = getattr(scene, 'openshelf_selected_result_index', -1)
+            total_results = len(getattr(scene, 'openshelf_search_results', []))
+
+            print(f"Selected index: {selected_index}")
+            print(f"Total results: {total_results}")
+
+            if hasattr(scene, 'openshelf_search_results') and total_results > 0:
+                print(f"\nAll results:")
+                for i, result in enumerate(scene.openshelf_search_results):
+                    marker = ">>> " if i == selected_index else "    "
+                    print(f"{marker}{i}: {result.name} (ID: {result.asset_id})")
+
+                # Asset attualmente selezionato
+                if 0 <= selected_index < total_results:
+                    selected_result = scene.openshelf_search_results[selected_index]
+                    print(f"\n🎯 Currently selected:")
+                    print(f"   Name: {selected_result.name}")
+                    print(f"   ID: {selected_result.asset_id}")
+                    print(f"   Repository: {selected_result.repository}")
+                    print(f"   Type: {selected_result.object_type}")
+                else:
+                    print(f"\n❌ Invalid selection index: {selected_index}")
+            else:
+                print("\n⚠️  No search results available")
+
+            # Cache info
+            cache_count = len(getattr(scene, 'openshelf_assets_cache', []))
+            print(f"\nCache: {cache_count} assets")
+
+        except Exception as e:
+            print(f"❌ Debug error: {e}")
+            import traceback
+            traceback.print_exc()
+
+        print("="*50)
+        self.report({'INFO'}, f"Debug info printed - Index: {selected_index}/{total_results}")
+        return {'FINISHED'}
+
+
 # Registrazione debug operators
 debug_operators = [
     OPENSHELF_OT_test_direct_import,
     OPENSHELF_OT_debug_context_info,
     OPENSHELF_OT_emergency_reset,
     OPENSHELF_OT_test_cache_info,
+    OPENSHELF_OT_debug_selection
 ]
 
 def register():

@@ -1,12 +1,39 @@
 """
-OpenShelf Search Panel - VERSIONE COMPLETA AGGIORNATA
+OpenShelf Search Panel - FIX ROBUSTEZZA UI
 Pannello principale per ricerca asset culturali
-AGGIUNTO: Pannello Import Settings con preset Meters/Millimeters
+FIX: Gestione robusta operatori mancanti e selezione asset
 """
 
 import bpy
 from bpy.types import Panel
 
+def check_operator_available(operator_idname):
+    """Controlla se un operatore è disponibile"""
+    try:
+        return hasattr(bpy.ops, operator_idname.split('.')[0]) and hasattr(getattr(bpy.ops, operator_idname.split('.')[0]), operator_idname.split('.')[1])
+    except:
+        return False
+
+def safe_get_selected_result(scene):
+    """Ottiene il risultato selezionato in modo sicuro"""
+    try:
+        if not hasattr(scene, 'openshelf_search_results') or not scene.openshelf_search_results:
+            return None
+
+        selected_index = getattr(scene, 'openshelf_selected_result_index', 0)
+
+        if 0 <= selected_index < len(scene.openshelf_search_results):
+            return scene.openshelf_search_results[selected_index]
+        else:
+            # Index fuori range, reset a 0
+            scene.openshelf_selected_result_index = 0
+            if len(scene.openshelf_search_results) > 0:
+                return scene.openshelf_search_results[0]
+
+    except Exception as e:
+        print(f"OpenShelf: Error getting selected result: {e}")
+
+    return None
 
 class OPENSHELF_PT_main_panel(Panel):
     """Pannello principale OpenShelf"""
@@ -37,12 +64,29 @@ class OPENSHELF_PT_main_panel(Panel):
         if hasattr(scene, 'openshelf_active_repository'):
             box.prop(scene, 'openshelf_active_repository', text="")
 
-        # Pulsanti repository
+        # Pulsanti repository con controllo disponibilità
         row = box.row(align=True)
-        row.operator("openshelf.refresh_repositories", text="Refresh", icon='FILE_REFRESH')
-        row.operator("openshelf.test_repository", text="Test", icon='CHECKMARK')
-        row.operator("openshelf.repository_info", text="Info", icon='INFO')
 
+        if check_operator_available('openshelf.refresh_repositories'):
+            row.operator("openshelf.refresh_repositories", text="Refresh", icon='FILE_REFRESH')
+        else:
+            sub = row.row()
+            sub.enabled = False
+            sub.label(text="Refresh", icon='FILE_REFRESH')
+
+        if check_operator_available('openshelf.test_repository'):
+            row.operator("openshelf.test_repository", text="Test", icon='CHECKMARK')
+        else:
+            sub = row.row()
+            sub.enabled = False
+            sub.label(text="Test", icon='CHECKMARK')
+
+        if check_operator_available('openshelf.repository_info'):
+            row.operator("openshelf.repository_info", text="Info", icon='INFO')
+        else:
+            sub = row.row()
+            sub.enabled = False
+            sub.label(text="Info", icon='INFO')
 
 class OPENSHELF_PT_search_panel(Panel):
     """Pannello ricerca principale"""
@@ -77,7 +121,7 @@ class OPENSHELF_PT_search_panel(Panel):
         box.label(text="Repository", icon='WORLD_DATA')
         box.prop(scene, 'openshelf_active_repository', text="", icon='BOOKMARKS')
 
-        # SEZIONE 1: RICERCA PRINCIPALE (solo campo principale)
+        # SEZIONE RICERCA PRINCIPALE
         box = layout.box()
         box.label(text="Search", icon='ZOOM_SELECTED')
 
@@ -85,28 +129,38 @@ class OPENSHELF_PT_search_panel(Panel):
         col = box.column()
         col.prop(scene, 'openshelf_search_text', text="", icon='VIEWZOOM')
 
-        # Bottoni azione ricerca
+        # Bottoni azione ricerca con controllo disponibilità
         row = box.row(align=True)
 
         # Disabilita ricerca se già in corso
         search_disabled = getattr(scene, 'openshelf_is_searching', False)
         row.enabled = not search_disabled
 
-        row.operator("openshelf.search_assets", text="Search", icon='ZOOM_SELECTED')
-        row.operator("openshelf.clear_search", text="Clear", icon='X')
+        if check_operator_available('openshelf.search_assets'):
+            row.operator("openshelf.search_assets", text="Search", icon='ZOOM_SELECTED')
+        else:
+            sub = row.row()
+            sub.enabled = False
+            sub.label(text="Search", icon='ERROR')
+
+        if check_operator_available('openshelf.clear_search'):
+            row.operator("openshelf.clear_search", text="Clear", icon='X')
+        else:
+            sub = row.row()
+            sub.enabled = False
+            sub.label(text="Clear", icon='X')
 
         # Mostra progresso se ricerca in corso
         if search_disabled:
             progress_box = layout.box()
             progress_box.label(text="Searching...", icon='TIME')
 
-        # Salva ricerca (se ha senso mantenerlo qui)
-        if scene.openshelf_search_text:
+        # Salva ricerca se disponibile
+        if scene.openshelf_search_text and check_operator_available('openshelf.save_search'):
             box.operator("openshelf.save_search", text="Save Search", icon='FILE_TICK')
 
-
 class OPENSHELF_PT_progress_panel_colored(Panel):
-    """Pannello progress con colori veri (usando props per colorare)"""
+    """Pannello progress con colori"""
     bl_label = "Download Progress"
     bl_idname = "OPENSHELF_PT_progress_panel_colored"
     bl_space_type = 'VIEW_3D'
@@ -135,19 +189,17 @@ class OPENSHELF_PT_progress_panel_colored(Panel):
 
         # Progress bar usando split layout con colori
         col = box.column()
-
-        # Background grigio
         bg_row = col.row(align=True)
         bg_row.scale_y = 2.0
 
-        # Calcola larghezza barra (in steps di 5%)
+        # Calcola larghezza barra
         progress_width = max(1, progress // 5)  # 1-20 steps
         remaining_width = 20 - progress_width
 
         # Parte riempita (verde)
         if progress_width > 0:
             filled_row = bg_row.row(align=True)
-            filled_row.alert = False  # Verde/normale
+            filled_row.alert = False
             filled_row.enabled = True
             for i in range(progress_width):
                 filled_row.label(text="█")
@@ -155,7 +207,7 @@ class OPENSHELF_PT_progress_panel_colored(Panel):
         # Parte vuota (grigia)
         if remaining_width > 0:
             empty_row = bg_row.row(align=True)
-            empty_row.enabled = False  # Grigia
+            empty_row.enabled = False
             for i in range(remaining_width):
                 empty_row.label(text="█")
 
@@ -164,12 +216,12 @@ class OPENSHELF_PT_progress_panel_colored(Panel):
         perc_row.scale_y = 1.5
         perc_row.label(text=f"{progress}% Complete", icon='INFO')
 
-        # Cancel button
-        col.operator("openshelf.cancel_import", text="Cancel Download", icon='CANCEL')
-
+        # Cancel button se disponibile
+        if check_operator_available('openshelf.cancel_import'):
+            col.operator("openshelf.cancel_import", text="Cancel Download", icon='CANCEL')
 
 class OPENSHELF_PT_results_panel(Panel):
-    """Pannello risultati ricerca"""
+    """Pannello risultati ricerca - FIX ROBUSTEZZA"""
     bl_label = "Results"
     bl_idname = "OPENSHELF_PT_results_panel"
     bl_space_type = 'VIEW_3D'
@@ -197,10 +249,8 @@ class OPENSHELF_PT_results_panel(Panel):
             if hasattr(scene, 'openshelf_last_search') and scene.openshelf_last_search:
                 box.label(text=f"Query: '{scene.openshelf_last_search}'", icon='VIEWZOOM')
 
-        # Lista risultati (se ci sono)
+        # Lista risultati con controlli di sicurezza
         if hasattr(scene, 'openshelf_search_results') and len(scene.openshelf_search_results) > 0:
-
-            # Scrollable list per i risultati
             box = layout.box()
             box.label(text="Assets", icon='OUTLINER_COLLECTION')
 
@@ -213,136 +263,56 @@ class OPENSHELF_PT_results_panel(Panel):
                 rows=5
             )
 
-            # Azioni e info su risultato selezionato
-            if len(scene.openshelf_search_results) > 0:
-                selected_index = getattr(scene, 'openshelf_selected_result_index', 0)
-                if 0 <= selected_index < len(scene.openshelf_search_results):
-                    selected_result = scene.openshelf_search_results[selected_index]
+            # FIX: Ottieni risultato selezionato in modo sicuro
+            selected_result = safe_get_selected_result(scene)
 
-                    # PULSANTI AZIONE - VERSIONE AGGIORNATA
-                    actions_box = box.box()
-                    actions_row = actions_box.row(align=True)
+            if selected_result:
+                # PULSANTI AZIONE - VERSIONE ROBUSTA
+                actions_box = box.box()
+                actions_row = actions_box.row(align=True)
 
-                    # Import normale (usa impostazioni correnti)
+                # FIX: Controlla se gli operatori sono disponibili prima di usarli
+                if check_operator_available('openshelf.modal_import_asset'):
                     import_op = actions_row.operator("openshelf.modal_import_asset", text="Import", icon='IMPORT')
                     import_op.asset_id = selected_result.asset_id
+                else:
+                    # Mostra pulsante disabilitato se operatore non disponibile
+                    sub = actions_row.row()
+                    sub.enabled = False
+                    sub.label(text="Import", icon='ERROR')
+                    actions_box.label(text="⚠️ Import operators not available", icon='ERROR')
 
-                    # Import con dialog opzioni (se disponibile)
-                    if hasattr(bpy.ops.openshelf, 'import_asset_with_options'):
-                        import_opts_op = actions_row.operator("openshelf.import_asset_with_options", text="Options", icon='TOOL_SETTINGS')
-                        import_opts_op.asset_id = selected_result.asset_id
+                # Import con opzioni se disponibile
+                if check_operator_available('openshelf.import_asset_with_options'):
+                    import_opts_op = actions_row.operator("openshelf.import_asset_with_options", text="Options", icon='TOOL_SETTINGS')
+                    import_opts_op.asset_id = selected_result.asset_id
 
-                    # Seconda riga utility
-                    utils_row = actions_box.row(align=True)
+                # Seconda riga utility
+                utils_row = actions_box.row(align=True)
 
-                    # Preview
+                # Preview
+                if check_operator_available('openshelf.preview_asset'):
                     preview_op = utils_row.operator("openshelf.preview_asset", text="Info", icon='INFO')
                     preview_op.asset_id = selected_result.asset_id
 
-                    # Validate
+                # Validate
+                if check_operator_available('openshelf.validate_asset'):
                     validate_op = utils_row.operator("openshelf.validate_asset", text="Check", icon='CHECKMARK')
                     validate_op.asset_id = selected_result.asset_id
 
-                    # NUOVA SEZIONE: DETTAGLI ASSET SELEZIONATO
-                    details_box = layout.box()
-                    details_box.label(text="Selected Asset Details", icon='TEXT')
+                # DETTAGLI ASSET SELEZIONATO
+                self._draw_asset_details(layout, selected_result)
+            else:
+                # Nessun asset selezionato o errore
+                box.label(text="⚠️ No asset selected", icon='ERROR')
 
-                    # Titolo asset
-                    title_row = details_box.row()
-                    title_row.scale_y = 1.2
-                    title_row.label(text=selected_result.name, icon='OBJECT_DATA')
-
-                    # Info compatte in colonne
-                    info_split = details_box.split(factor=0.3)
-
-                    # Colonna sinistra: labels
-                    left_col = info_split.column()
-                    left_col.scale_y = 0.8
-                    left_col.alignment = 'RIGHT'
-                    left_col.label(text="Type:")
-                    left_col.label(text="Inventory:")
-                    if selected_result.materials:
-                        left_col.label(text="Materials:")
-                    if selected_result.chronology:
-                        left_col.label(text="Period:")
-                    if selected_result.quality_score > 0:
-                        left_col.label(text="Quality:")
-
-                    # Colonna destra: valori
-                    right_col = info_split.column()
-                    right_col.scale_y = 0.8
-                    right_col.label(text=selected_result.object_type or "Unknown")
-                    right_col.label(text=selected_result.inventory_number or "N/A")
-                    if selected_result.materials:
-                        # Tronca materiali se troppo lunghi
-                        materials = selected_result.materials
-                        if len(materials) > 30:
-                            materials = materials[:30] + "..."
-                        right_col.label(text=materials)
-                    if selected_result.chronology:
-                        chronology = selected_result.chronology
-                        if len(chronology) > 25:
-                            chronology = chronology[:25] + "..."
-                        right_col.label(text=chronology)
-                    if selected_result.quality_score > 0:
-                        right_col.label(text=f"{selected_result.quality_score}%", icon='KEYTYPE_JITTER_VEC')
-
-                    # DESCRIZIONE (se presente)
-                    if selected_result.description and selected_result.description.strip():
-                        desc_box = details_box.box()
-                        desc_box.label(text="Description:", icon='TEXT')
-
-                        # Spezza descrizione in righe
-                        description = selected_result.description.strip()
-
-                        # Limita lunghezza per evitare pannello troppo alto
-                        if len(description) > 200:
-                            description = description[:200] + "..."
-
-                        # Spezza in parole e raggruppa per righe
-                        words = description.split()
-                        current_line = ""
-                        line_length = 35  # Caratteri per riga
-
-                        desc_col = desc_box.column(align=True)
-                        desc_col.scale_y = 0.8
-
-                        for word in words:
-                            if len(current_line + " " + word) <= line_length:
-                                current_line += " " + word if current_line else word
-                            else:
-                                if current_line:
-                                    desc_col.label(text=current_line)
-                                current_line = word
-
-                        # Ultima riga
-                        if current_line:
-                            desc_col.label(text=current_line)
-                    else:
-                        # Nessuna descrizione
-                        details_box.label(text="No description available", icon='INFO')
-
-                    # Info tecniche compatte
-                    tech_row = details_box.row(align=True)
-                    tech_row.scale_y = 0.7
-                    tech_row.label(text=f"Repository: {selected_result.repository}", icon='BOOKMARKS')
-
-                    # Controlla se ha modelli 3D
-                    has_models = False
-                    try:
-                        import json
-                        if selected_result.model_urls:
-                            urls = json.loads(selected_result.model_urls)
-                            has_models = len(urls) > 0 if isinstance(urls, list) else bool(urls)
-                    except:
-                        pass
-
-                    model_icon = 'CHECKMARK' if has_models else 'X'
-                    model_text = "3D Available" if has_models else "No 3D Models"
-                    tech_row.label(text=model_text, icon=model_icon)
+                # Info di debug se ci sono risultati ma selezione invalida
+                if len(scene.openshelf_search_results) > 0:
+                    selected_index = getattr(scene, 'openshelf_selected_result_index', -1)
+                    box.label(text=f"Selected index: {selected_index}/{len(scene.openshelf_search_results)}")
 
         else:
-            # Nessun risultato - suggerimenti
+            # Nessun risultato
             if hasattr(scene, 'openshelf_search_count') and scene.openshelf_search_count == 0:
                 box = layout.box()
                 box.label(text="No results found", icon='INFO')
@@ -352,6 +322,104 @@ class OPENSHELF_PT_results_panel(Panel):
                 box = layout.box()
                 box.label(text="Run a search to see results", icon='ZOOM_SELECTED')
 
+    def _draw_asset_details(self, layout, selected_result):
+        """Disegna dettagli asset selezionato"""
+        try:
+            details_box = layout.box()
+            details_box.label(text="Selected Asset Details", icon='TEXT')
+
+            # Titolo asset
+            title_row = details_box.row()
+            title_row.scale_y = 1.2
+            title_row.label(text=selected_result.name, icon='OBJECT_DATA')
+
+            # Info compatte
+            info_split = details_box.split(factor=0.3)
+
+            # Colonna sinistra: labels
+            left_col = info_split.column()
+            left_col.scale_y = 0.8
+            left_col.alignment = 'RIGHT'
+            left_col.label(text="Type:")
+            left_col.label(text="Inventory:")
+            if selected_result.materials:
+                left_col.label(text="Materials:")
+            if selected_result.chronology:
+                left_col.label(text="Period:")
+            if selected_result.quality_score > 0:
+                left_col.label(text="Quality:")
+
+            # Colonna destra: valori
+            right_col = info_split.column()
+            right_col.scale_y = 0.8
+            right_col.label(text=selected_result.object_type or "Unknown")
+            right_col.label(text=selected_result.inventory_number or "N/A")
+            if selected_result.materials:
+                materials = selected_result.materials
+                if len(materials) > 30:
+                    materials = materials[:30] + "..."
+                right_col.label(text=materials)
+            if selected_result.chronology:
+                chronology = selected_result.chronology
+                if len(chronology) > 25:
+                    chronology = chronology[:25] + "..."
+                right_col.label(text=chronology)
+            if selected_result.quality_score > 0:
+                right_col.label(text=f"{selected_result.quality_score}%", icon='KEYTYPE_JITTER_VEC')
+
+            # Descrizione se presente
+            if selected_result.description and selected_result.description.strip():
+                desc_box = details_box.box()
+                desc_box.label(text="Description:", icon='TEXT')
+
+                description = selected_result.description.strip()
+                if len(description) > 200:
+                    description = description[:200] + "..."
+
+                # Spezza in righe
+                words = description.split()
+                current_line = ""
+                line_length = 35
+
+                desc_col = desc_box.column(align=True)
+                desc_col.scale_y = 0.8
+
+                for word in words:
+                    if len(current_line + " " + word) <= line_length:
+                        current_line += " " + word if current_line else word
+                    else:
+                        if current_line:
+                            desc_col.label(text=current_line)
+                        current_line = word
+
+                if current_line:
+                    desc_col.label(text=current_line)
+            else:
+                details_box.label(text="No description available", icon='INFO')
+
+            # Info tecniche
+            tech_row = details_box.row(align=True)
+            tech_row.scale_y = 0.7
+            tech_row.label(text=f"Repository: {selected_result.repository}", icon='BOOKMARKS')
+
+            # Controlla modelli 3D
+            has_models = False
+            try:
+                import json
+                if selected_result.model_urls:
+                    urls = json.loads(selected_result.model_urls)
+                    has_models = len(urls) > 0 if isinstance(urls, list) else bool(urls)
+            except:
+                pass
+
+            model_icon = 'CHECKMARK' if has_models else 'X'
+            model_text = "3D Available" if has_models else "No 3D Models"
+            tech_row.label(text=model_text, icon=model_icon)
+
+        except Exception as e:
+            print(f"OpenShelf: Error drawing asset details: {e}")
+            details_box = layout.box()
+            details_box.label(text="Error displaying asset details", icon='ERROR')
 
 class OPENSHELF_PT_import_settings_panel(Panel):
     """Pannello impostazioni import"""
@@ -361,7 +429,7 @@ class OPENSHELF_PT_import_settings_panel(Panel):
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 4  # Prima dei filtri
+    bl_order = 4
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -376,13 +444,9 @@ class OPENSHELF_PT_import_settings_panel(Panel):
         box.label(text="Scale & Position", icon='OBJECT_ORIGIN')
 
         col = box.column(align=True)
-
-        # Scala di import con slider
         row = col.row(align=True)
         row.prop(scene, 'openshelf_import_scale', text="Scale")
         row.label(text="%")
-
-        # Auto center
         col.prop(scene, 'openshelf_auto_center', text="Auto Center")
 
         # SEZIONE MATERIALI
@@ -393,26 +457,34 @@ class OPENSHELF_PT_import_settings_panel(Panel):
         col.prop(scene, 'openshelf_apply_materials', text="Apply Materials")
         col.prop(scene, 'openshelf_add_metadata', text="Cultural Metadata")
 
-        # SEZIONE PRESET MODIFICATA
+        # SEZIONE PRESET
         box = layout.box()
         box.label(text="Quick Presets: original model is in", icon='PRESET')
 
-        # Bottoni preset rapidi
         row = box.row(align=True)
 
-        # Preset "Meters"
-        meter_op = row.operator("openshelf.apply_import_preset", text="Meters")
-        meter_op.preset_name = "meter"
+        # Preset con controllo disponibilità
+        if check_operator_available('openshelf.apply_import_preset'):
+            meter_op = row.operator("openshelf.apply_import_preset", text="Meters")
+            meter_op.preset_name = "meter"
 
-        # Preset "Millimeters"
-        millimeter_op = row.operator("openshelf.apply_import_preset", text="Millimeters")
-        millimeter_op.preset_name = "millimeter"
+            millimeter_op = row.operator("openshelf.apply_import_preset", text="Millimeters")
+            millimeter_op.preset_name = "millimeter"
+        else:
+            sub = row.row()
+            sub.enabled = False
+            sub.label(text="Presets", icon='ERROR')
 
-        # Reset alle impostazioni di default
+        # Reset settings
         reset_row = box.row()
-        reset_row.operator("openshelf.reset_import_settings", text="Reset to Defaults", icon='FILE_REFRESH')
+        if check_operator_available('openshelf.reset_import_settings'):
+            reset_row.operator("openshelf.reset_import_settings", text="Reset to Defaults", icon='FILE_REFRESH')
+        else:
+            sub = reset_row.row()
+            sub.enabled = False
+            sub.label(text="Reset", icon='ERROR')
 
-        # Anteprima impostazioni correnti
+        # Anteprima impostazioni
         info_box = layout.box()
         info_box.label(text="Current Settings", icon='INFO')
 
@@ -423,9 +495,8 @@ class OPENSHELF_PT_import_settings_panel(Panel):
         col.label(text=f"Materials: {'Apply' if scene.openshelf_apply_materials else 'Skip'}")
         col.label(text=f"Metadata: {'Add' if scene.openshelf_add_metadata else 'Skip'}")
 
-
 class OPENSHELF_PT_filter_results_panel(Panel):
-    """Pannello filtri - SPOSTATO DOPO I RISULTATI"""
+    """Pannello filtri"""
     bl_label = "Filter Results"
     bl_idname = "OPENSHELF_PT_filter_results_panel"
     bl_space_type = 'VIEW_3D'
@@ -433,23 +504,21 @@ class OPENSHELF_PT_filter_results_panel(Panel):
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
     bl_order = 5
-    bl_options = {'DEFAULT_CLOSED'}  # Chiuso di default
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
-        # Icona speciale per indicare che filtra i risultati esistenti
         self.layout.label(icon='FILTER')
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
 
-        # Mostra filtri solo se ci sono risultati da filtrare
         if not hasattr(scene, 'openshelf_search_results') or len(scene.openshelf_search_results) == 0:
             layout.label(text="No results to filter", icon='INFO')
             layout.label(text="Run a search first")
             return
 
-        # Descrizione chiara del comportamento
+        # Descrizione
         info_box = layout.box()
         info_box.scale_y = 0.8
         col = info_box.column(align=True)
@@ -467,17 +536,25 @@ class OPENSHELF_PT_filter_results_panel(Panel):
         col.prop(scene, 'openshelf_filter_chronology', text="Period", icon='TIME')
         col.prop(scene, 'openshelf_filter_inventory', text="Inventory", icon='LINENUMBERS_ON')
 
-        # BOTTONI AZIONE FILTRI
+        # BOTTONI AZIONE FILTRI con controllo disponibilità
         actions_box = layout.box()
         row = actions_box.row(align=True)
 
-        # Pulsante principale: "Filter Results" (rinominato da "Apply Filters")
-        filter_op = row.operator("openshelf.apply_filters", text="Filter Results", icon='FILTER')
+        if check_operator_available('openshelf.apply_filters'):
+            row.operator("openshelf.apply_filters", text="Filter Results", icon='FILTER')
+        else:
+            sub = row.row()
+            sub.enabled = False
+            sub.label(text="Filter", icon='ERROR')
 
-        # Pulsante per pulire solo i filtri
-        clear_filters_op = row.operator("openshelf.clear_filters", text="Clear Filters", icon='X')
+        if check_operator_available('openshelf.clear_filters'):
+            row.operator("openshelf.clear_filters", text="Clear Filters", icon='X')
+        else:
+            sub = row.row()
+            sub.enabled = False
+            sub.label(text="Clear", icon='ERROR')
 
-        # Informazioni sui filtri attivi
+        # Informazioni filtri attivi
         active_filters = []
         if scene.openshelf_filter_type:
             active_filters.append(f"Type: {scene.openshelf_filter_type}")
@@ -496,8 +573,7 @@ class OPENSHELF_PT_filter_results_panel(Panel):
             for filter_info in active_filters:
                 col.label(text=f"• {filter_info}")
 
-
-# Lista per i risultati di ricerca (resta uguale)
+# Lista per i risultati di ricerca
 class OPENSHELF_UL_search_results(bpy.types.UIList):
     """Lista UI per risultati ricerca"""
     bl_idname = "OPENSHELF_UL_search_results"
@@ -516,7 +592,7 @@ class OPENSHELF_UL_search_results(bpy.types.UIList):
             # Nome principale
             layout.label(text=item.name, icon=type_icon)
 
-            # Info aggiuntive in sub-row
+            # Info aggiuntive
             sub = layout.row(align=True)
             sub.scale_x = 0.7
             sub.scale_y = 0.8
@@ -532,100 +608,44 @@ class OPENSHELF_UL_search_results(bpy.types.UIList):
             layout.alignment = 'CENTER'
             layout.label(text="", icon=type_icon)
 
-
-class OPENSHELF_OT_show_asset_info(bpy.types.Operator):
-    """Mostra informazioni dettagliate asset"""
-    bl_idname = "openshelf.show_asset_info"
-    bl_label = "Show Asset Info"
-    bl_description = "Show detailed information about the asset"
-    bl_options = {'REGISTER'}
-
-    asset_id: bpy.props.StringProperty(
-        name="Asset ID",
-        description="ID of the asset to show info for",
-        default=""
-    )
-
-    def execute(self, context):
-        # Reindirizza al preview_asset che fa la stessa cosa
-        bpy.ops.openshelf.preview_asset(asset_id=self.asset_id)
-        return {'FINISHED'}
-
-
+# Operatori per preset e utilità - con controlli robustezza
 class OPENSHELF_OT_apply_import_preset(bpy.types.Operator):
-    """Applica preset import con supporto per Meters/Millimeters"""
+    """Applica preset import"""
     bl_idname = "openshelf.apply_import_preset"
     bl_label = "Apply Import Preset"
-    bl_description = "Apply predefined import settings for different unit scales"
+    bl_description = "Apply predefined import settings"
     bl_options = {'REGISTER'}
 
-    preset_name: bpy.props.StringProperty(
-        name="Preset Name",
-        description="Name of the preset to apply",
-        default="default"
-    )
+    preset_name: bpy.props.StringProperty(default="default")
 
     def execute(self, context):
         scene = context.scene
 
         try:
             if self.preset_name == "meter":
-                # Preset per modelli in metri (scala 100% = 1 metro in Blender)
                 scene.openshelf_import_scale = 100
                 scene.openshelf_auto_center = True
                 scene.openshelf_apply_materials = True
                 scene.openshelf_add_metadata = True
-
-                self.report({'INFO'}, "Applied Meters preset (1:1 scale)")
+                self.report({'INFO'}, "Applied Meters preset")
 
             elif self.preset_name == "millimeter":
-                # Preset per modelli in millimetri (scala 0.1% = 1mm -> 0.001m in Blender)
-                scene.openshelf_import_scale = 10  # 0.1 scale = 10%
+                scene.openshelf_import_scale = 10
                 scene.openshelf_auto_center = True
                 scene.openshelf_apply_materials = True
                 scene.openshelf_add_metadata = True
-
-                self.report({'INFO'}, "Applied Millimeters preset (0.1% scale)")
-
-            elif self.preset_name == "centimeter":
-                # Preset per modelli in centimetri (scala 1% = 1cm -> 0.01m in Blender)
-                scene.openshelf_import_scale = 100  # 1.0 scale = 100%
-                scene.openshelf_auto_center = True
-                scene.openshelf_apply_materials = True
-                scene.openshelf_add_metadata = True
-
-                self.report({'INFO'}, "Applied Centimeters preset (1% scale)")
-
-            elif self.preset_name == "high_quality":
-                # Preset alta qualità (legacy)
-                scene.openshelf_import_scale = 100
-                scene.openshelf_auto_center = True
-                scene.openshelf_apply_materials = True
-                scene.openshelf_add_metadata = True
-
-                self.report({'INFO'}, "Applied High Quality preset")
-
-            elif self.preset_name == "fast":
-                # Preset import veloce (legacy)
-                scene.openshelf_import_scale = 100
-                scene.openshelf_auto_center = True
-                scene.openshelf_apply_materials = False  # Skip materiali per velocità
-                scene.openshelf_add_metadata = False     # Skip metadati per velocità
-
-                self.report({'INFO'}, "Applied Fast Import preset")
+                self.report({'INFO'}, "Applied Millimeters preset")
 
             else:
                 self.report({'WARNING'}, f"Unknown preset: {self.preset_name}")
 
         except Exception as e:
-            print(f"OpenShelf: Error applying preset: {e}")
             self.report({'ERROR'}, f"Error applying preset: {str(e)}")
 
         return {'FINISHED'}
 
-
 class OPENSHELF_OT_reset_import_settings(bpy.types.Operator):
-    """Reset impostazioni import ai valori di default"""
+    """Reset impostazioni import"""
     bl_idname = "openshelf.reset_import_settings"
     bl_label = "Reset Import Settings"
     bl_description = "Reset import settings to default values"
@@ -635,41 +655,48 @@ class OPENSHELF_OT_reset_import_settings(bpy.types.Operator):
         scene = context.scene
 
         try:
-            # Valori di default
             scene.openshelf_import_scale = 100
             scene.openshelf_auto_center = True
             scene.openshelf_apply_materials = True
             scene.openshelf_add_metadata = True
-
             self.report({'INFO'}, "Import settings reset to defaults")
 
         except Exception as e:
-            print(f"OpenShelf: Error resetting import settings: {e}")
             self.report({'ERROR'}, f"Error resetting settings: {str(e)}")
 
         return {'FINISHED'}
 
-
-# Registrazione pannelli AGGIORNATA
+# Registrazione pannelli
 panels = [
     OPENSHELF_PT_main_panel,
     OPENSHELF_PT_search_panel,
     OPENSHELF_PT_progress_panel_colored,
     OPENSHELF_PT_results_panel,
-    OPENSHELF_PT_import_settings_panel,      # <-- AGGIUNTO
+    OPENSHELF_PT_import_settings_panel,
     OPENSHELF_PT_filter_results_panel,
     OPENSHELF_UL_search_results,
-    OPENSHELF_OT_show_asset_info,
-    OPENSHELF_OT_apply_import_preset,        # <-- AGGIUNTO
-    OPENSHELF_OT_reset_import_settings,      # <-- AGGIUNTO
+    OPENSHELF_OT_apply_import_preset,
+    OPENSHELF_OT_reset_import_settings,
 ]
 
 def register():
     """Registra i pannelli search"""
     for panel in panels:
-        bpy.utils.register_class(panel)
+        try:
+            if not hasattr(bpy.types, panel.__name__):
+                bpy.utils.register_class(panel)
+                print(f"OpenShelf: Registered UI class {panel.__name__}")
+            else:
+                print(f"OpenShelf: UI class {panel.__name__} already registered")
+        except Exception as e:
+            print(f"OpenShelf: Error registering UI class {panel.__name__}: {e}")
 
 def unregister():
     """Deregistra i pannelli search"""
     for panel in reversed(panels):
-        bpy.utils.unregister_class(panel)
+        try:
+            if hasattr(bpy.types, panel.__name__):
+                bpy.utils.unregister_class(panel)
+                print(f"OpenShelf: Unregistered UI class {panel.__name__}")
+        except Exception as e:
+            print(f"OpenShelf: Error unregistering UI class {panel.__name__}: {e}")

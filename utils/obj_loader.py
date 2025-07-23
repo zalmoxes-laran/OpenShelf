@@ -48,10 +48,8 @@ class OBJLoader:
                 'use_split_objects': kwargs.get('use_split_objects', True),
                 'use_split_groups': kwargs.get('use_split_groups', False),
                 # *** FIX CRITICO: Parametri corretti per Blender 4.2+ ***
-                #'forward_axis': kwargs.get('forward_axis', 'NEGATIVE_Z'),  # Era 'axis_forward'
-                #'up_axis': kwargs.get('up_axis', 'Y'),                    # Era 'axis_up'
-                'forward_axis' : kwargs.get('forward_axis', 'POSITIVE_Y'),
-                'up_axis' : kwargs.get('up_axis', 'Z'),
+                'forward_axis': kwargs.get('forward_axis', 'NEGATIVE_Z'),  # Era 'axis_forward'
+                'up_axis': kwargs.get('up_axis', 'Y'),                    # Era 'axis_up'
             }
 
             # Aggiungi parametri opzionali solo se specificati e validi
