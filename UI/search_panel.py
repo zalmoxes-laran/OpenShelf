@@ -429,7 +429,7 @@ class OPENSHELF_PT_import_settings_panel(Panel):
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 4
+    bl_order = 5
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -503,7 +503,7 @@ class OPENSHELF_PT_filter_results_panel(Panel):
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 5
+    bl_order = 6
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -666,19 +666,178 @@ class OPENSHELF_OT_reset_import_settings(bpy.types.Operator):
 
         return {'FINISHED'}
 
+
+"""
+Aggiunta di accesso rapido alle impostazioni cache nel pannello principale
+"""
+class OPENSHELF_PT_cache_quick_panel(Panel):
+    """Pannello accesso rapido cache - NUOVO"""
+    bl_label = "Cache & Storage"
+    bl_idname = "OPENSHELF_PT_cache_quick_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OpenShelf"
+    bl_parent_id = "OPENSHELF_PT_main_panel"
+    bl_order = 4  # Tra results e import settings
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        self.layout.label(icon='FILE_CACHE')
+
+    def draw(self, context):
+        layout = self.layout
+
+        # Info cache corrente con accesso rapido
+        box = layout.box()
+        box.label(text="Current Cache", icon='FOLDER_REDIRECT')
+
+        try:
+            # Ottieni directory cache corrente
+            addon_name = __package__.split('.')[0]
+            prefs = context.preferences.addons[addon_name].preferences
+
+            current_cache_dir = None
+            if hasattr(prefs, 'custom_cache_directory') and prefs.custom_cache_directory.strip():
+                current_cache_dir = prefs.custom_cache_directory.strip()
+                cache_type = "Custom"
+            else:
+                import tempfile
+                current_cache_dir = os.path.join(tempfile.gettempdir(), "openshelf_cache")
+                cache_type = "Default"
+
+            # Mostra info directory corrente
+            col = box.column(align=True)
+            col.scale_y = 0.8
+            col.label(text=f"Type: {cache_type}")
+
+            # Mostra path abbreviato
+            if current_cache_dir:
+                if len(current_cache_dir) > 35:
+                    display_path = "..." + current_cache_dir[-32:]
+                else:
+                    display_path = current_cache_dir
+                col.label(text=f"Path: {display_path}")
+
+                # Verifica se esiste
+                if os.path.exists(current_cache_dir):
+                    col.label(text="✓ Directory exists", icon='CHECKMARK')
+                else:
+                    col.label(text="⚠ Will be created when needed", icon='INFO')
+
+        except Exception as e:
+            box.label(text="Cache info unavailable", icon='ERROR')
+
+        # Statistiche cache rapide
+        box = layout.box()
+        box.label(text="Cache Stats", icon='GRAPH')
+
+        try:
+            from ..utils.download_manager import get_download_manager
+            dm = get_download_manager()
+            cache_stats = dm.get_cache_statistics()
+
+            col = box.column(align=True)
+            col.scale_y = 0.8
+
+            file_count = cache_stats['file_count']
+            cache_size_mb = cache_stats['cache_size'] / (1024 * 1024)
+
+            col.label(text=f"Files: {file_count}")
+
+            if cache_size_mb < 1:
+                col.label(text=f"Size: {cache_stats['cache_size'] / 1024:.0f} KB")
+            else:
+                col.label(text=f"Size: {cache_size_mb:.1f} MB")
+
+        except Exception:
+            col = box.column()
+            col.label(text="Stats unavailable")
+
+        # Azioni rapide cache
+        box = layout.box()
+        box.label(text="Quick Actions", icon='TOOL_SETTINGS')
+
+        col = box.column(align=True)
+
+        # Apri cartella cache
+        if check_operator_available('openshelf.open_cache_directory'):
+            col.operator("openshelf.open_cache_directory", text="Open Cache Folder", icon='FILE_FOLDER')
+
+        # Pulisci cache
+        if check_operator_available('openshelf.clear_repository_cache'):
+            clear_op = col.operator("openshelf.clear_repository_cache", text="Clear Cache", icon='TRASH')
+            clear_op.repository_name = "all"
+            clear_op.confirm = True
+
+        # Statistiche dettagliate
+        if check_operator_available('openshelf.cache_statistics'):
+            col.operator("openshelf.cache_statistics", text="Detailed Stats", icon='GRAPH')
+
+        # NUOVO: Accesso rapido alle preferenze cache
+        box = layout.box()
+        box.label(text="Settings", icon='PREFERENCES')
+
+        col = box.column()
+        col.scale_y = 1.2
+
+        # Pulsante per aprire preferenze direttamente al tab cache
+        prefs_op = col.operator("screen.userpref_show", text="Open Cache Preferences", icon='SETTINGS')
+
+        # Info che spiega dove si trova
+        info_col = col.column(align=True)
+        info_col.scale_y = 0.7
+        info_col.label(text="Set custom cache directory,")
+        info_col.label(text="size limits, and cleanup options")
+        info_col.label(text="in Preferences > Add-ons > OpenShelf")
+
+#  operatore per aprire direttamente le preferenze cache
+class OPENSHELF_OT_open_cache_preferences(bpy.types.Operator):
+    """Apre le preferenze addon direttamente al tab cache"""
+    bl_idname = "openshelf.open_cache_preferences"
+    bl_label = "Open Cache Preferences"
+    bl_description = "Open OpenShelf preferences at Cache tab"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        try:
+            # Apri preferences
+            bpy.ops.screen.userpref_show('INVOKE_DEFAULT')
+
+            # Vai al tab Add-ons
+            context.preferences.active_section = 'ADDONS'
+
+            # Cerca OpenShelf
+            addon_name = __package__.split('.')[0]
+
+            # Espandi l'addon se possibile
+            if addon_name in context.preferences.addons:
+                prefs = context.preferences.addons[addon_name].preferences
+                # Imposta tab cache se la proprietà esiste
+                if hasattr(prefs, 'prefs_tab'):
+                    prefs.prefs_tab = 'CACHE'
+
+            self.report({'INFO'}, "Opened OpenShelf preferences - go to Cache tab")
+
+        except Exception as e:
+            print(f"OpenShelf: Error opening cache preferences: {e}")
+            self.report({'ERROR'}, f"Error opening preferences: {str(e)}")
+
+        return {'FINISHED'}
+
 # Registrazione pannelli
 panels = [
     OPENSHELF_PT_main_panel,
     OPENSHELF_PT_search_panel,
     OPENSHELF_PT_progress_panel_colored,
     OPENSHELF_PT_results_panel,
+    OPENSHELF_PT_cache_quick_panel,  # NUOVO pannello cache
     OPENSHELF_PT_import_settings_panel,
     OPENSHELF_PT_filter_results_panel,
     OPENSHELF_UL_search_results,
     OPENSHELF_OT_apply_import_preset,
     OPENSHELF_OT_reset_import_settings,
+    OPENSHELF_OT_open_cache_preferences,  # NUOVO operatore
 ]
-
 def register():
     """Registra i pannelli search"""
     for panel in panels:

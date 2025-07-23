@@ -16,7 +16,7 @@ import json
 import time
 import threading
 class DownloadProgress:
-    """Classe per tracciare il progresso del download"""
+    """Classe migliorata per tracciare il progresso del download"""
 
     def __init__(self, total_size: int = 0):
         self.total_size = total_size
@@ -24,15 +24,84 @@ class DownloadProgress:
         self.progress_callback = None
         self.cancelled = False
 
+        # NUOVO: Tracking velocità e tempo
+        self.start_time = time.time()
+        self.last_update_time = time.time()
+        self.speed_samples = []  # Lista degli ultimi campioni di velocità
+        self.max_speed_samples = 10  # Mantieni solo gli ultimi 10 campioni
+
     def set_callback(self, callback: Callable[[int, int], None]):
         """Imposta callback per aggiornamenti progresso"""
         self.progress_callback = callback
 
     def update(self, downloaded: int):
-        """Aggiorna il progresso"""
+        """Aggiorna il progresso CON CALCOLO VELOCITÀ"""
+        current_time = time.time()
+
+        # Calcola velocità se non è il primo update
+        if self.downloaded_size > 0:
+            time_diff = current_time - self.last_update_time
+            bytes_diff = downloaded - self.downloaded_size
+
+            if time_diff > 0:
+                current_speed = bytes_diff / time_diff
+                self.speed_samples.append(current_speed)
+
+                # Mantieni solo gli ultimi campioni
+                if len(self.speed_samples) > self.max_speed_samples:
+                    self.speed_samples.pop(0)
+
         self.downloaded_size = downloaded
+        self.last_update_time = current_time
+
         if self.progress_callback and not self.cancelled:
             self.progress_callback(downloaded, self.total_size)
+
+    def get_average_speed(self) -> float:
+        """Ottiene velocità media basata sui campioni recenti"""
+        if not self.speed_samples:
+            elapsed = time.time() - self.start_time
+            if elapsed > 0 and self.downloaded_size > 0:
+                return self.downloaded_size / elapsed
+            return 0
+
+        return sum(self.speed_samples) / len(self.speed_samples)
+
+    def get_eta_seconds(self) -> float:
+        """Stima tempo rimanente in secondi"""
+        if self.total_size <= 0 or self.downloaded_size >= self.total_size:
+            return 0
+
+        avg_speed = self.get_average_speed()
+        if avg_speed <= 0:
+            return 0
+
+        remaining_bytes = self.total_size - self.downloaded_size
+        return remaining_bytes / avg_speed
+
+    def get_speed_text(self) -> str:
+        """Ottiene testo velocità formattato"""
+        speed = self.get_average_speed()
+
+        if speed > 1024 * 1024:
+            return f"{speed / (1024 * 1024):.1f} MB/s"
+        elif speed > 1024:
+            return f"{speed / 1024:.0f} KB/s"
+        else:
+            return f"{speed:.0f} B/s"
+
+    def get_eta_text(self) -> str:
+        """Ottiene testo ETA formattato"""
+        eta = self.get_eta_seconds()
+
+        if eta <= 0:
+            return ""
+        elif eta < 60:
+            return f"{eta:.0f}s"
+        elif eta < 3600:
+            return f"{eta / 60:.1f}m"
+        else:
+            return f"{eta / 3600:.1f}h"
 
     def cancel(self):
         """Cancella il download"""
@@ -43,8 +112,96 @@ class DownloadProgress:
         if self.total_size == 0:
             return 0
         return min(100, int((self.downloaded_size / self.total_size) * 100))
+class CacheStatistics:
+    """Statistiche dettagliate della cache"""
 
+    def __init__(self, cache: 'DownloadCache'):
+        self.cache = cache
 
+    def get_detailed_stats(self) -> Dict[str, Any]:
+        """Ottiene statistiche dettagliate della cache"""
+        try:
+            stats = {
+                "basic": self._get_basic_stats(),
+                "files": self._get_file_stats(),
+                "usage": self._get_usage_stats(),
+                "age": self._get_age_stats()
+            }
+            return stats
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _get_basic_stats(self) -> Dict[str, Any]:
+        """Statistiche base"""
+        return {
+            "total_files": len(self.cache.index),
+            "total_size": sum(info.get('size', 0) for info in self.cache.index.values()),
+            "cache_dir": str(self.cache.cache_dir),
+            "max_size": self.cache.max_cache_size
+        }
+
+    def _get_file_stats(self) -> Dict[str, Any]:
+        """Statistiche per tipo di file"""
+        file_types = {}
+        total_by_type = {}
+
+        for cache_info in self.cache.index.values():
+            filename = cache_info.get('original_name', '')
+            ext = os.path.splitext(filename)[1].lower()
+
+            if not ext:
+                ext = 'unknown'
+
+            file_types[ext] = file_types.get(ext, 0) + 1
+            total_by_type[ext] = total_by_type.get(ext, 0) + cache_info.get('size', 0)
+
+        return {
+            "by_extension": file_types,
+            "size_by_extension": total_by_type
+        }
+
+    def _get_usage_stats(self) -> Dict[str, Any]:
+        """Statistiche di utilizzo"""
+        now = time.time()
+
+        recently_accessed = 0  # < 1 giorno
+        old_files = 0  # > 7 giorni
+        never_accessed = 0
+
+        for cache_info in self.cache.index.values():
+            last_accessed = cache_info.get('last_accessed', 0)
+
+            if last_accessed == 0:
+                never_accessed += 1
+            elif now - last_accessed < 86400:  # 1 giorno
+                recently_accessed += 1
+            elif now - last_accessed > 604800:  # 7 giorni
+                old_files += 1
+
+        return {
+            "recently_accessed": recently_accessed,
+            "old_files": old_files,
+            "never_accessed": never_accessed
+        }
+
+    def _get_age_stats(self) -> Dict[str, Any]:
+        """Statistiche età file"""
+        now = time.time()
+        ages = []
+
+        for cache_info in self.cache.index.values():
+            timestamp = cache_info.get('timestamp', now)
+            age_days = (now - timestamp) / 86400
+            ages.append(age_days)
+
+        if ages:
+            return {
+                "oldest": max(ages),
+                "newest": min(ages),
+                "average": sum(ages) / len(ages)
+            }
+
+        return {"oldest": 0, "newest": 0, "average": 0}
 class DownloadCache:
     """Cache per i file scaricati"""
 
@@ -226,7 +383,6 @@ class DownloadCache:
                     print(f"OpenShelf: Error during cleanup: {e}")
 
             self.save_index()
-
 class DownloadManager:
     """Gestore centralizzato per i download"""
 
@@ -530,6 +686,70 @@ class DownloadManager:
     def __del__(self):
         """Cleanup automatico"""
         self.cleanup()
+
+    def get_detailed_cache_statistics(self) -> Dict[str, Any]:
+        """Ottiene statistiche cache dettagliate - NUOVO"""
+        cache_stats = CacheStatistics(self.cache)
+        return cache_stats.get_detailed_stats()
+
+    def get_cache_health_report(self) -> Dict[str, Any]:
+        """Genera report salute cache - NUOVO"""
+        try:
+            stats = self.get_detailed_cache_statistics()
+            basic = stats.get('basic', {})
+            usage = stats.get('usage', {})
+
+            total_files = basic.get('total_files', 0)
+            total_size = basic.get('total_size', 0)
+            max_size = basic.get('max_size', self.cache.max_cache_size)
+
+            # Calcola "salute" della cache
+            health_score = 100
+            issues = []
+            recommendations = []
+
+            # Check utilizzo spazio
+            if max_size > 0:
+                usage_percent = (total_size / max_size) * 100
+                if usage_percent > 90:
+                    health_score -= 20
+                    issues.append("Cache nearly full")
+                    recommendations.append("Consider increasing cache size or clearing old files")
+                elif usage_percent > 75:
+                    health_score -= 10
+                    issues.append("Cache usage high")
+
+            # Check file vecchi
+            old_files = usage.get('old_files', 0)
+            if old_files > total_files * 0.5:
+                health_score -= 15
+                issues.append("Many old unused files")
+                recommendations.append("Clear cache to remove old files")
+
+            # Check file mai acceduti
+            never_accessed = usage.get('never_accessed', 0)
+            if never_accessed > total_files * 0.3:
+                health_score -= 10
+                issues.append("Many files never accessed")
+                recommendations.append("Cache may contain unnecessary files")
+
+            if not issues:
+                recommendations.append("Cache is healthy!")
+
+            return {
+                "health_score": max(0, health_score),
+                "total_files": total_files,
+                "total_size_mb": total_size / (1024 * 1024),
+                "usage_percent": (total_size / max_size * 100) if max_size > 0 else 0,
+                "issues": issues,
+                "recommendations": recommendations
+            }
+
+        except Exception as e:
+            return {
+                "error": f"Cannot generate health report: {str(e)}",
+                "health_score": 0
+            }
 
 # Istanza globale per riutilizzo
 _global_download_manager = None

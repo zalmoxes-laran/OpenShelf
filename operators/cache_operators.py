@@ -280,6 +280,79 @@ class OPENSHELF_OT_cache_statistics(Operator):
 
         return {'FINISHED'}
 
+class OPENSHELF_OT_cache_health_report(bpy.types.Operator):
+    """Mostra report salute cache"""
+    bl_idname = "openshelf.cache_health_report"
+    bl_label = "Cache Health Report"
+    bl_description = "Show detailed cache health analysis"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        try:
+            from ..utils.download_manager import get_download_manager
+            dm = get_download_manager()
+            report = dm.get_cache_health_report()
+
+            # Mostra popup con report
+            def draw_health_popup(self, context):
+                layout = self.layout
+
+                if "error" in report:
+                    layout.label(text=report["error"], icon='ERROR')
+                    return
+
+                # Header con punteggio
+                header_box = layout.box()
+                health_score = report["health_score"]
+
+                if health_score >= 80:
+                    icon = 'CHECKMARK'
+                    status = "Excellent"
+                elif health_score >= 60:
+                    icon = 'INFO'
+                    status = "Good"
+                elif health_score >= 40:
+                    icon = 'ERROR'
+                    status = "Fair"
+                else:
+                    icon = 'CANCEL'
+                    status = "Poor"
+
+                header_box.label(text=f"Health Score: {health_score}/100 ({status})", icon=icon)
+
+                # Stats
+                stats_box = layout.box()
+                stats_box.label(text="Statistics", icon='GRAPH')
+                col = stats_box.column(align=True)
+                col.scale_y = 0.8
+                col.label(text=f"Files: {report['total_files']}")
+                col.label(text=f"Size: {report['total_size_mb']:.1f} MB")
+                col.label(text=f"Usage: {report['usage_percent']:.1f}%")
+
+                # Issues
+                if report['issues']:
+                    issues_box = layout.box()
+                    issues_box.label(text="Issues Found", icon='ERROR')
+                    for issue in report['issues']:
+                        issues_box.label(text=f"• {issue}")
+
+                # Recommendations
+                rec_box = layout.box()
+                rec_box.label(text="Recommendations", icon='LIGHTBULB')
+                for rec in report['recommendations']:
+                    rec_box.label(text=f"• {rec}")
+
+            context.window_manager.popup_menu(
+                draw_health_popup,
+                title="Cache Health Report",
+                icon='GRAPH'
+            )
+
+        except Exception as e:
+            self.report({'ERROR'}, f"Error generating health report: {str(e)}")
+
+        return {'FINISHED'}
+
 # Lista operatori da registrare
 operators = [
     OPENSHELF_OT_clear_repository_cache,
@@ -287,6 +360,7 @@ operators = [
     OPENSHELF_OT_reset_cache_directory,
     OPENSHELF_OT_migrate_cache,
     OPENSHELF_OT_cache_statistics,
+    OPENSHELF_OT_cache_health_report,
 ]
 
 def register():

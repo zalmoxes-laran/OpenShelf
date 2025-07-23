@@ -290,9 +290,17 @@ class OpenShelfPreferences(AddonPreferences):
 
 
     def draw_cache_tab(self, layout):
-        """Disegna tab impostazioni cache - VERSIONE CORRETTA"""
+        """Disegna tab impostazioni cache - VERSIONE MIGLIORATA"""
 
-        # Cache settings
+        # Header con info importante
+        info_box = layout.box()
+        info_box.alert = True
+        col = info_box.column(align=True)
+        col.scale_y = 0.8
+        col.label(text="📁 Cache stores downloaded 3D models locally", icon='INFO')
+        col.label(text="   for faster access and offline use")
+
+        # Cache settings principale
         box = layout.box()
         box.label(text="Cache Settings", icon='FILE_CACHE')
 
@@ -300,82 +308,186 @@ class OpenShelfPreferences(AddonPreferences):
         col.prop(self, "download_cache_enabled")
 
         if self.download_cache_enabled:
-            col.prop(self, "cache_max_size")
-            col.prop(self, "cache_max_age")
+            settings_row = col.row(align=True)
+            settings_row.prop(self, "cache_max_size", text="Max Size (MB)")
+            settings_row.prop(self, "cache_max_age", text="Max Age (days)")
 
-            # FIX: Cartella cache personalizzata con migliore UI
+            # Cache Directory con UI migliorata
             cache_box = col.box()
-            cache_box.label(text="Cache Directory", icon='FOLDER_REDIRECT')
+            cache_box.label(text="📂 Cache Directory Location", icon='FOLDER_REDIRECT')
 
-            cache_col = cache_box.column()
-            cache_col.prop(self, "custom_cache_directory", text="Custom Path")
+            # Campo input per directory personalizzata
+            dir_col = cache_box.column()
+            dir_col.prop(self, "custom_cache_directory", text="Custom Path")
 
-            # Info sulla directory corrente
-            if self.custom_cache_directory and os.path.exists(self.custom_cache_directory):
-                cache_col.label(text="✓ Custom directory exists", icon='CHECKMARK')
-            elif self.custom_cache_directory:
-                cache_col.label(text="⚠ Directory not found - will be created", icon='ERROR')
+            # Info sulla directory corrente con più dettagli
+            info_col = cache_box.column()
+            info_col.scale_y = 0.8
+
+            if self.custom_cache_directory and self.custom_cache_directory.strip():
+                custom_dir = self.custom_cache_directory.strip()
+
+                if os.path.exists(custom_dir):
+                    info_col.label(text="✅ Custom directory exists", icon='CHECKMARK')
+
+                    # Mostra dimensione directory se possibile
+                    try:
+                        from ..utils.file_utils import FileUtils
+                        dir_size = FileUtils.get_directory_size(custom_dir)
+                        if dir_size > 0:
+                            if dir_size < 1024 * 1024:
+                                size_text = f"{dir_size / 1024:.0f} KB"
+                            else:
+                                size_text = f"{dir_size / (1024 * 1024):.1f} MB"
+                            info_col.label(text=f"📊 Current size: {size_text}")
+                    except:
+                        pass
+
+                else:
+                    info_col.label(text="⚠️ Directory will be created when needed", icon='ERROR')
+
+                # Mostra path completo se diverso da quello visualizzato
+                if len(custom_dir) > 60:
+                    info_col.label(text=f"Full path: {custom_dir}")
             else:
                 import tempfile
                 default_cache = os.path.join(tempfile.gettempdir(), "openshelf_cache")
-                cache_col.label(text=f"Using default: {default_cache}", icon='INFO')
+                info_col.label(text="🔧 Using system default location:")
+
+                # Mostra default path su più righe se necessario
+                if len(default_cache) > 50:
+                    # Spezza il path in parti più leggibili
+                    parts = default_cache.split(os.sep)
+                    if len(parts) > 3:
+                        short_path = os.sep.join(['..'] + parts[-2:])
+                        info_col.label(text=f"   {short_path}")
+                    else:
+                        info_col.label(text=f"   {default_cache}")
+                else:
+                    info_col.label(text=f"   {default_cache}")
+
+            # Azioni rapide directory
+            actions_row = cache_box.row(align=True)
+            actions_row.operator("openshelf.open_cache_directory", text="📁 Open", icon='FILE_FOLDER')
+
+            if self.custom_cache_directory:
+                actions_row.operator("openshelf.reset_cache_directory", text="🔄 Reset", icon='LOOP_BACK')
 
         else:
-            col.label(text="Cache disabled - files will be downloaded each time")
+            warning_box = col.box()
+            warning_box.alert = True
+            warning_col = warning_box.column()
+            warning_col.label(text="⚠️ Cache disabled", icon='ERROR')
+            warning_col.label(text="Models will be downloaded every time")
+            warning_col.label(text="This will be slower and use more bandwidth")
 
-        # Cache info
+        # Cache info con statistiche dettagliate
         box = layout.box()
-        box.label(text="Cache Information", icon='INFO')
+        box.label(text="📊 Cache Information", icon='GRAPH')
 
-        # FIX: Migliore gestione errori per cache stats
         try:
             from ..utils.download_manager import get_download_manager
             dm = get_download_manager()
 
-            # FIX: Se custom cache directory è impostata, la usa
+            # Se custom cache directory è impostata, la usa
             if self.custom_cache_directory and self.custom_cache_directory.strip():
-                # Ricrea download manager con custom directory
                 from ..utils.download_manager import DownloadManager
                 dm = DownloadManager(self.custom_cache_directory.strip())
 
             cache_stats = dm.get_cache_statistics()
 
-            col = box.column()
-            col.scale_y = 0.8
-            col.label(text=f"Current cache size: {cache_stats['cache_size'] / (1024*1024):.1f} MB")
-            col.label(text=f"Cached files: {cache_stats['file_count']}")
+            # Statistiche principali
+            stats_split = box.split(factor=0.7)
 
-            # Mostra directory attiva
+            # Colonna sinistra: numeri
+            left_col = stats_split.column()
+            left_col.scale_y = 0.9
+
+            cache_size_mb = cache_stats['cache_size'] / (1024*1024)
+            file_count = cache_stats['file_count']
+
+            left_col.label(text=f"📦 Files cached: {file_count}")
+
+            if cache_size_mb < 1:
+                size_kb = cache_stats['cache_size'] / 1024
+                left_col.label(text=f"💾 Total size: {size_kb:.0f} KB")
+            else:
+                left_col.label(text=f"💾 Total size: {cache_size_mb:.1f} MB")
+
+            # Percentuale utilizzata
+            if file_count > 0 and self.download_cache_enabled:
+                usage_percent = cache_size_mb / self.cache_max_size * 100
+                left_col.label(text=f"📈 Usage: {usage_percent:.1f}% of {self.cache_max_size} MB")
+
+                # Barra di utilizzo visuale
+                progress_row = left_col.row()
+                progress_row.scale_y = 0.6
+
+                # Semplice barra di progresso usando caratteri
+                bar_length = 20
+                filled_length = int((usage_percent / 100) * bar_length)
+                bar = "█" * filled_length + "░" * (bar_length - filled_length)
+                progress_row.label(text=f"[{bar}]")
+
+            # Colonna destra: directory info
+            right_col = stats_split.column()
+            right_col.scale_y = 0.8
+
             cache_dir = cache_stats['cache_dir']
-            if len(cache_dir) > 50:
-                cache_dir = "..." + cache_dir[-47:]
-            col.label(text=f"Directory: {cache_dir}")
+            right_col.label(text="📁 Location:")
 
-            # Percentage utilizzata
-            if cache_stats['file_count'] > 0:
-                usage_percent = (cache_stats['cache_size'] / (1024*1024)) / self.cache_max_size * 100
-                col.label(text=f"Usage: {usage_percent:.1f}% of {self.cache_max_size} MB limit")
+            # Mostra directory su più righe se troppo lunga
+            if len(cache_dir) > 35:
+                # Spezza in parti leggibili
+                parts = cache_dir.split(os.sep)
+                if len(parts) > 2:
+                    right_col.label(text=f"  ...{os.sep}{os.sep.join(parts[-2:])}")
+                else:
+                    right_col.label(text=f"  {cache_dir}")
+            else:
+                right_col.label(text=f"  {cache_dir}")
 
         except Exception as e:
-            col = box.column()
-            col.label(text=f"Cache info unavailable: {str(e)}")
+            error_col = box.column()
+            error_col.label(text=f"❌ Cache info unavailable: {str(e)}", icon='ERROR')
 
-        # Cache actions
+        # Cache actions con icone e descrizioni
         box = layout.box()
-        box.label(text="Cache Actions", icon='TOOL_SETTINGS')
+        box.label(text="🛠️ Cache Management", icon='TOOL_SETTINGS')
 
-        col = box.column(align=True)
+        actions_col = box.column(align=True)
 
-        # FIX: Clear cache button corretto
-        clear_op = col.operator("openshelf.clear_repository_cache", text="Clear All Cache", icon='TRASH')
+        # Clear cache con warning
+        clear_row = actions_col.row()
+        clear_row.scale_y = 1.2
+        clear_op = clear_row.operator("openshelf.clear_repository_cache", text="🗑️ Clear All Cache", icon='TRASH')
         clear_op.repository_name = "all"
         clear_op.confirm = True
 
         # Operazioni aggiuntive
-        col.operator("openshelf.open_cache_directory", text="Open Cache Folder", icon='FILE_FOLDER')
+        utils_col = actions_col.column(align=True)
+        utils_col.scale_y = 0.9
+
+        utils_col.operator("openshelf.cache_statistics", text="📈 Detailed Statistics", icon='GRAPH')
 
         if self.custom_cache_directory:
-            col.operator("openshelf.reset_cache_directory", text="Reset to Default", icon='LOOP_BACK')
+            migrate_op = utils_col.operator("openshelf.migrate_cache", text="📦 Migrate Cache", icon='ARROW_LEFTRIGHT')
+            migrate_op.old_directory = ""  # Will be filled by user
+
+        # Tips box
+        tips_box = layout.box()
+        tips_box.label(text="💡 Cache Tips", icon='LIGHTBULB')
+
+        tips_col = tips_box.column(align=True)
+        tips_col.scale_y = 0.8
+        tips_col.label(text="• Larger cache = fewer downloads but more disk space")
+        tips_col.label(text="• Custom directory = better control over location")
+        tips_col.label(text="• Clear cache if you have storage issues")
+        tips_col.label(text="• Cache survives Blender restarts")
+
+        if not self.download_cache_enabled:
+            tips_col.separator()
+            tips_col.label(text="⚡ Enable cache for much faster repeated imports!", icon='INFO')
 
     def draw_advanced_tab(self, layout):
         """Disegna tab impostazioni avanzate"""

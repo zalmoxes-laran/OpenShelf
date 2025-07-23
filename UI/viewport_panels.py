@@ -15,7 +15,7 @@ class OPENSHELF_PT_statistics_panel(Panel):
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 7
+    bl_order = 9
     bl_options = {'DEFAULT_CLOSED'}  # Chiuso di default per non occupare spazio
 
     def draw(self, context):
@@ -137,7 +137,7 @@ class OPENSHELF_PT_object_info(Panel):
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 5
+    bl_order = 7
 
     @classmethod
     def poll(cls, context):
@@ -272,7 +272,7 @@ class OPENSHELF_PT_quick_actions(Panel):
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 6
+    bl_order = 8
 
     def draw(self, context):
         layout = self.layout
@@ -340,7 +340,7 @@ class OPENSHELF_PT_help_panel(Panel):
     bl_region_type = 'UI'
     bl_category = "OpenShelf"
     bl_parent_id = "OPENSHELF_PT_main_panel"
-    bl_order = 8
+    bl_order = 10
 
     def draw(self, context):
         layout = self.layout
