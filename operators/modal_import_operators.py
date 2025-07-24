@@ -138,8 +138,17 @@ class OPENSHELF_OT_modal_import_asset(Operator):
 
         # Avvia timer modal più frequente per progress fluido
         wm = context.window_manager
-        self._timer = wm.event_timer_add(0.05, window=context.window)  # FIX: 50ms invece di 100ms
+        self._timer = wm.event_timer_add(0.02, window=context.window)  # 20ms = 50 FPS per UI fluida
         wm.modal_handler_add(self)
+
+
+        # Force UI refresh per mostrare pannello progress
+        scene.openshelf_is_downloading = True
+        scene.openshelf_download_progress = 0
+        scene.openshelf_status_message = "Initializing download..."
+
+        # CRITICAL: Force immediate UI refresh
+        self._force_ui_update(context)
 
         print(f"OpenShelf: Starting modal import for asset {self.asset_id} - {self._asset_data.name}")
         return {'RUNNING_MODAL'}
@@ -311,9 +320,8 @@ class OPENSHELF_OT_modal_import_asset(Operator):
 
         return {'RUNNING_MODAL'}
 
-
     def _step_download(self, context):
-        """Step 1: Download con progress callback migliorato e visualizzazione KB/MB"""
+        """Step 1: Download con progress callback MOLTO PIÙ AGGRESSIVO"""
         scene = context.scene
 
         try:
@@ -332,48 +340,55 @@ class OPENSHELF_OT_modal_import_asset(Operator):
                 self._smooth_progress_target = 15
                 return {'RUNNING_MODAL'}
 
-            # FIX: Progress callback migliorato con visualizzazione KB/MB intelligente
+            # FIX: Progress callback MOLTO PIÙ AGGRESSIVO
             def progress_callback(downloaded, total):
+                current_time = time.time()
+
+                # AGGIORNA UI OGNI VOLTA che viene chiamato il callback
                 if total > 0:
                     # Calcola percentuale per la barra di progresso (50% del totale riservato al download)
                     download_percent = (downloaded / total) * 50
                     self._smooth_progress_target = 15 + download_percent
 
-                    # FIX: Visualizzazione intelligente delle dimensioni
+                    # AGGIORNA IMMEDIATAMENTE il progresso nella scene
+                    new_progress = int(self._smooth_progress_target)
+                    scene.openshelf_download_progress = new_progress
+
+                    # FIX: Visualizzazione AGGIORNATA OGNI VOLTA
                     if total < 1024 * 1024:  # < 1MB: mostra in KB
                         downloaded_kb = downloaded / 1024
                         total_kb = total / 1024
 
                         if total_kb < 100:  # < 100KB: 1 decimale
-                            scene.openshelf_status_message = f"Downloading {downloaded_kb:.1f}/{total_kb:.1f} KB"
+                            scene.openshelf_status_message = f"📥 {downloaded_kb:.1f}/{total_kb:.1f} KB ({new_progress}%)"
                         else:  # >= 100KB: numeri interi
-                            scene.openshelf_status_message = f"Downloading {downloaded_kb:.0f}/{total_kb:.0f} KB"
+                            scene.openshelf_status_message = f"📥 {downloaded_kb:.0f}/{total_kb:.0f} KB ({new_progress}%)"
 
                     elif total < 10 * 1024 * 1024:  # 1-10MB: mostra MB con 1 decimale
                         downloaded_mb = downloaded / (1024 * 1024)
                         total_mb = total / (1024 * 1024)
-                        scene.openshelf_status_message = f"Downloading {downloaded_mb:.1f}/{total_mb:.1f} MB"
+                        scene.openshelf_status_message = f"📥 {downloaded_mb:.1f}/{total_mb:.1f} MB ({new_progress}%)"
 
                     else:  # > 10MB: mostra MB con numeri interi
                         downloaded_mb = downloaded / (1024 * 1024)
                         total_mb = total / (1024 * 1024)
-                        scene.openshelf_status_message = f"Downloading {downloaded_mb:.0f}/{total_mb:.0f} MB"
+                        scene.openshelf_status_message = f"📥 {downloaded_mb:.0f}/{total_mb:.0f} MB ({new_progress}%)"
 
-                    # Aggiungi informazioni sulla velocità se utile
-                    elapsed = time.time() - self._step_start_time
-                    if elapsed > 2:  # Dopo 2 secondi, mostra velocità stimata
+                    # Aggiungi velocità se il download è in corso da più di 1 secondo
+                    elapsed = current_time - self._step_start_time
+                    if elapsed > 1:
                         speed_bps = downloaded / elapsed
                         if speed_bps > 1024 * 1024:
-                            speed_text = f" ({speed_bps / (1024 * 1024):.1f} MB/s)"
+                            speed_text = f" - {speed_bps / (1024 * 1024):.1f} MB/s"
                         elif speed_bps > 1024:
-                            speed_text = f" ({speed_bps / 1024:.0f} KB/s)"
+                            speed_text = f" - {speed_bps / 1024:.0f} KB/s"
                         else:
-                            speed_text = f" ({speed_bps:.0f} B/s)"
+                            speed_text = f" - {speed_bps:.0f} B/s"
 
                         scene.openshelf_status_message += speed_text
 
-                    # Stima tempo rimanente per file grandi
-                    if total > 5 * 1024 * 1024 and elapsed > 3:  # File > 5MB dopo 3 secondi
+                    # ETA per file grandi
+                    if total > 2 * 1024 * 1024 and elapsed > 2:  # File > 2MB dopo 2 secondi
                         remaining_bytes = total - downloaded
                         eta_seconds = remaining_bytes / (downloaded / elapsed)
                         if eta_seconds < 60:
@@ -388,18 +403,26 @@ class OPENSHELF_OT_modal_import_asset(Operator):
                     # Progress senza dimensione nota - mostra solo scaricato
                     if downloaded < 1024 * 1024:  # < 1MB
                         downloaded_kb = downloaded / 1024
-                        scene.openshelf_status_message = f"Downloading {downloaded_kb:.0f} KB"
+                        scene.openshelf_status_message = f"📥 Downloading {downloaded_kb:.0f} KB..."
                     else:
                         downloaded_mb = downloaded / (1024 * 1024)
-                        scene.openshelf_status_message = f"Downloading {downloaded_mb:.1f} MB"
+                        scene.openshelf_status_message = f"📥 Downloading {downloaded_mb:.1f} MB..."
 
                     # Progress senza totale noto - incrementa gradualmente
-                    self._smooth_progress_target = min(60, self._smooth_progress_target + 0.3)
+                    self._smooth_progress_target = min(60, self._smooth_progress_target + 0.5)
+                    scene.openshelf_download_progress = int(self._smooth_progress_target)
 
-                # Force UI update più frequente durante download attivo
+                # CRITICAL: Force UI update AGGRESSIVO ad ogni callback
                 self._force_ui_update(context)
 
-            # Esegui download
+                # DEBUG: Stampa ogni 0.5 secondi circa
+                if not hasattr(self, '_last_callback_print'):
+                    self._last_callback_print = 0
+                if current_time - self._last_callback_print > 0.5:
+                    print(f"OpenShelf: Download progress - {scene.openshelf_download_progress}% - {scene.openshelf_status_message}")
+                    self._last_callback_print = current_time
+
+            # Esegui download con callback migliorato
             if not hasattr(self, '_download_path'):
                 print(f"OpenShelf: Starting download from {len(self._parsed_urls)} URLs")
                 archive_path = None
@@ -411,7 +434,7 @@ class OPENSHELF_OT_modal_import_asset(Operator):
                         if len(url_display) > 30:
                             url_display = url_display[:27] + "..."
 
-                        scene.openshelf_status_message = f"Connecting to {url_display}... ({i+1}/{len(self._parsed_urls)})"
+                        scene.openshelf_status_message = f"📡 Connecting to {url_display}... ({i+1}/{len(self._parsed_urls)})"
                         self._force_ui_update(context)
 
                         archive_path = self._download_manager.download_file(
@@ -430,12 +453,12 @@ class OPENSHELF_OT_modal_import_asset(Operator):
                             else:
                                 size_text = f"{file_size / (1024 * 1024):.1f} MB"
 
-                            scene.openshelf_status_message = f"Downloaded {size_text} successfully"
+                            scene.openshelf_status_message = f"✅ Downloaded {size_text} successfully"
                             break
 
                     except Exception as e:
                         print(f"OpenShelf: Download failed for {url}: {e}")
-                        scene.openshelf_status_message = f"Failed from source {i+1}, trying next..."
+                        scene.openshelf_status_message = f"❌ Failed from source {i+1}, trying next..."
                         continue
 
                 if not archive_path:
@@ -446,7 +469,7 @@ class OPENSHELF_OT_modal_import_asset(Operator):
                 self._download_path = archive_path
 
             # Download completato
-            scene.openshelf_status_message = "Download complete, preparing extraction..."
+            scene.openshelf_status_message = "✅ Download complete, preparing extraction..."
             self._smooth_progress_target = 70
             self._model_path = self._download_path
             self._current_step = 'EXTRACT'
@@ -755,6 +778,7 @@ class OPENSHELF_OT_modal_import_asset(Operator):
 
         total_time = time.time() - self._start_time
         print(f"OpenShelf: Modal import finished: {result_type} (time: {total_time:.1f}s)")
+
 
 # Lista operatori da registrare
 operators = [
