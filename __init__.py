@@ -72,7 +72,7 @@ print("OpenShelf: Starting module imports...")
 properties = safe_import_module('properties', __name__)
 repositories = safe_import_module('repositories', __name__)
 operators = safe_import_module('operators', __name__)
-ui = safe_import_module('ui', __name__)
+ui = safe_import_module('UI', __name__)
 
 # Lista moduli importati con successo
 successfully_imported_modules = []

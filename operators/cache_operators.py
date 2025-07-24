@@ -11,79 +11,374 @@ import subprocess
 import platform
 import tempfile
 import shutil
+from pathlib import Path
+from ..utils.chunked_download_manager import get_chunked_download_manager
+
 
 class OPENSHELF_OT_clear_repository_cache(Operator):
-    """Pulisce la cache di un repository - VERSIONE CORRETTA"""
+    """Operatore per pulizia cache repository MIGLIORATO"""
     bl_idname = "openshelf.clear_repository_cache"
     bl_label = "Clear Repository Cache"
-    bl_description = "Clear cache for selected repository"
-    bl_options = {'REGISTER'}
+    bl_description = "Clear cached data for selected repository"
+    bl_options = {'REGISTER', 'UNDO'}
 
     repository_name: StringProperty(
         name="Repository Name",
-        description="Name of repository to clear cache for",
-        default=""
+        description="Name of repository to clear (use 'all' for all repositories)",
+        default="all"
     )
 
     confirm: BoolProperty(
         name="Confirm",
-        description="Confirm cache clearing",
+        description="Confirm cache clearing operation",
         default=False
     )
 
-    def execute(self, context):
+    clear_type: EnumProperty(
+        name="Clear Type",
+        description="Type of cache data to clear",
+        items=[
+            ('metadata', 'Metadata Only', 'Clear only metadata cache (search results, asset info)'),
+            ('downloads', 'Downloads Only', 'Clear only downloaded 3D model files'),
+            ('all', 'Everything', 'Clear all cached data')
+        ],
+        default='all'
+    )
+
+    def invoke(self, context, event):
+        """Mostra dialog di conferma"""
         if not self.confirm:
-            return self.invoke(context, None)
+            return context.window_manager.invoke_props_dialog(self, width=400)
+        else:
+            return self.execute(context)
+
+    def draw(self, context):
+        """Draw del dialog di conferma"""
+        layout = self.layout
+
+        # Warning
+        layout.label(text="⚠️  Clear Repository Cache", icon='ERROR')
+        layout.separator()
+
+        # Info su cosa verrà cancellato
+        col = layout.column(align=True)
+        if self.repository_name == "all":
+            col.label(text="This will clear cache for ALL repositories:")
+        else:
+            col.label(text=f"This will clear cache for repository: {self.repository_name}")
+
+        col.separator()
+
+        if self.clear_type == 'metadata':
+            col.label(text="• Search results and asset metadata")
+            col.label(text="• Repository configurations")
+        elif self.clear_type == 'downloads':
+            col.label(text="• Downloaded 3D model files")
+            col.label(text="• Temporary extraction files")
+        else:  # all
+            col.label(text="• All search results and metadata")
+            col.label(text="• All downloaded 3D model files")
+            col.label(text="• All temporary files")
+
+        layout.separator()
+
+        # Opzioni
+        layout.prop(self, "clear_type")
+        layout.prop(self, "confirm")
+
+    def execute(self, context):
+        """Esegue pulizia cache con feedback dettagliato"""
+
+        if not self.confirm:
+            self.report({'ERROR'}, "Cache clearing cancelled - confirmation required")
+            return {'CANCELLED'}
 
         try:
-            from ..utils.download_manager import get_download_manager
+            cache_dir = bpy.utils.user_resource('DATAFILES', path="openshelf/cache", create=False)
 
-            # FIX: Ottieni download manager con directory custom se impostata
-            addon_name = __package__.split('.')[0]
-            prefs = context.preferences.addons[addon_name].preferences
+            if not cache_dir or not os.path.exists(cache_dir):
+                self.report({'INFO'}, "No cache directory found - nothing to clear")
+                return {'FINISHED'}
 
-            if hasattr(prefs, 'custom_cache_directory') and prefs.custom_cache_directory.strip():
-                from ..utils.download_manager import DownloadManager
-                dm = DownloadManager(prefs.custom_cache_directory.strip())
+            total_size_before = self._get_directory_size(cache_dir)
+            files_removed = 0
+            errors = []
+
+            print(f"OpenShelf: Starting cache cleanup - Type: {self.clear_type}, Repository: {self.repository_name}")
+
+            # Cancella download attivi se presenti
+            try:
+                chunked_manager = get_chunked_download_manager()
+                active_downloads = chunked_manager.get_active_download_count()
+                if active_downloads > 0:
+                    chunked_manager.cancel_all_downloads()
+                    print(f"OpenShelf: Cancelled {active_downloads} active downloads")
+            except Exception as e:
+                print(f"OpenShelf: Warning - could not cancel active downloads: {e}")
+
+            # Pulizia basata sul tipo
+            if self.clear_type in ['downloads', 'all']:
+                files_removed += self._clear_download_cache(cache_dir, errors)
+
+            if self.clear_type in ['metadata', 'all']:
+                files_removed += self._clear_metadata_cache(cache_dir, errors)
+
+            # Pulizia repository-specifica
+            if self.repository_name != "all":
+                files_removed += self._clear_repository_specific_cache(cache_dir, self.repository_name, errors)
+
+            # Calcola spazio liberato
+            total_size_after = self._get_directory_size(cache_dir) if os.path.exists(cache_dir) else 0
+            space_freed = total_size_before - total_size_after
+            space_freed_mb = space_freed / (1024 * 1024)
+
+            # Risultato
+            if errors:
+                error_summary = f"Cleared {files_removed} files but encountered {len(errors)} errors"
+                self.report({'WARNING'}, error_summary)
+                for error in errors[:3]:  # Mostra solo primi 3 errori
+                    print(f"OpenShelf: Cache clear error: {error}")
             else:
-                dm = get_download_manager()
+                success_msg = f"Cache cleared successfully: {files_removed} files removed, {space_freed_mb:.1f} MB freed"
+                self.report({'INFO'}, success_msg)
+                print(f"OpenShelf: {success_msg}")
 
-            # Pulisci cache
-            if self.repository_name == 'all':
-                # Pulisci tutta la cache
-                dm.clear_cache()
-                self.report({'INFO'}, "Cleared all cache")
-                print("OpenShelf: All cache cleared")
-            else:
-                # Per ora pulisci tutto (in futuro: cache specifica per repository)
-                dm.clear_cache()
-                self.report({'INFO'}, f"Cleared cache for {self.repository_name}")
-                print(f"OpenShelf: Cache cleared for {self.repository_name}")
-
-            # Force UI update
+            # Force UI refresh per aggiornare statistiche
             for area in context.screen.areas:
                 if area.type == 'VIEW_3D':
                     area.tag_redraw()
 
+            return {'FINISHED'}
+
         except Exception as e:
-            print(f"OpenShelf: Error clearing cache: {e}")
-            self.report({'ERROR'}, f"Error clearing cache: {str(e)}")
+            error_msg = f"Cache clearing failed: {str(e)}"
+            self.report({'ERROR'}, error_msg)
+            print(f"OpenShelf: {error_msg}")
+            return {'CANCELLED'}
 
-        return {'FINISHED'}
+    def _clear_download_cache(self, cache_dir: str, errors: list) -> int:
+        """Pulisce cache dei download"""
+        files_removed = 0
 
-    def invoke(self, context, event):
-        if self.confirm:
-            return self.execute(context)
+        try:
+            # File patterns per download
+            download_patterns = ['*.zip', '*.obj', '*.mtl', '*.ply', '*.stl', '*.3ds', '*.dae', '*.fbx']
+            temp_patterns = ['*.tmp', '.*.tmp']
 
-        # Mostra dialog di conferma
-        return context.window_manager.invoke_confirm(self, event)
+            cache_path = Path(cache_dir)
 
-    def draw(self, context):
-        layout = self.layout
-        layout.label(text="This will delete all cached files.", icon='ERROR')
-        layout.label(text="Files will be re-downloaded when needed.")
-        if self.repository_name == 'all':
-            layout.label(text="This affects ALL repositories.")
+            # Rimuovi file di download
+            for pattern in download_patterns:
+                for file_path in cache_path.glob(pattern):
+                    try:
+                        if file_path.is_file():
+                            file_path.unlink()
+                            files_removed += 1
+                    except Exception as e:
+                        errors.append(f"Failed to remove {file_path}: {e}")
+
+            # Rimuovi file temporanei
+            for pattern in temp_patterns:
+                for file_path in cache_path.glob(pattern):
+                    try:
+                        if file_path.is_file():
+                            file_path.unlink()
+                            files_removed += 1
+                    except Exception as e:
+                        errors.append(f"Failed to remove temp file {file_path}: {e}")
+
+            # Rimuovi directory di estrazione
+            extract_dirs = ['extracts', 'temp_extracts']
+            for dir_name in extract_dirs:
+                extract_path = cache_path / dir_name
+                if extract_path.exists() and extract_path.is_dir():
+                    try:
+                        shutil.rmtree(extract_path)
+                        files_removed += 1
+                    except Exception as e:
+                        errors.append(f"Failed to remove extract directory {extract_path}: {e}")
+
+        except Exception as e:
+            errors.append(f"Download cache clearing error: {e}")
+
+        return files_removed
+
+    def _clear_metadata_cache(self, cache_dir: str, errors: list) -> int:
+        """Pulisce cache dei metadata"""
+        files_removed = 0
+
+        try:
+            cache_path = Path(cache_dir)
+
+            # File patterns per metadata
+            metadata_patterns = ['*.json', '*.cache', '*.db']
+
+            for pattern in metadata_patterns:
+                for file_path in cache_path.glob(pattern):
+                    try:
+                        if file_path.is_file():
+                            file_path.unlink()
+                            files_removed += 1
+                    except Exception as e:
+                        errors.append(f"Failed to remove metadata {file_path}: {e}")
+
+            # Directory metadata
+            metadata_dirs = ['metadata', 'search_cache', 'repository_cache']
+            for dir_name in metadata_dirs:
+                metadata_path = cache_path / dir_name
+                if metadata_path.exists() and metadata_path.is_dir():
+                    try:
+                        shutil.rmtree(metadata_path)
+                        files_removed += 1
+                    except Exception as e:
+                        errors.append(f"Failed to remove metadata directory {metadata_path}: {e}")
+
+        except Exception as e:
+            errors.append(f"Metadata cache clearing error: {e}")
+
+        return files_removed
+
+    def _clear_repository_specific_cache(self, cache_dir: str, repository_name: str, errors: list) -> int:
+        """Pulisce cache specifica per un repository"""
+        files_removed = 0
+
+        try:
+            cache_path = Path(cache_dir)
+
+            # Cerca file che contengono il nome del repository
+            for file_path in cache_path.rglob(f"*{repository_name}*"):
+                try:
+                    if file_path.is_file():
+                        file_path.unlink()
+                        files_removed += 1
+                    elif file_path.is_dir():
+                        shutil.rmtree(file_path)
+                        files_removed += 1
+                except Exception as e:
+                    errors.append(f"Failed to remove repository file {file_path}: {e}")
+
+        except Exception as e:
+            errors.append(f"Repository-specific cache clearing error: {e}")
+
+        return files_removed
+
+    def _get_directory_size(self, directory: str) -> int:
+        """Calcola dimensione totale directory"""
+        try:
+            total_size = 0
+            for dirpath, dirnames, filenames in os.walk(directory):
+                for filename in filenames:
+                    filepath = os.path.join(dirpath, filename)
+                    try:
+                        total_size += os.path.getsize(filepath)
+                    except (OSError, FileNotFoundError):
+                        pass
+            return total_size
+        except Exception:
+            return 0
+
+class OPENSHELF_OT_reset_ui_state(Operator):
+    """Reset dello stato UI in caso di problemi"""
+    bl_idname = "openshelf.reset_ui_state"
+    bl_label = "Reset UI State"
+    bl_description = "Reset OpenShelf UI state if stuck or corrupted"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        """Reset completo dello stato UI"""
+        try:
+            scene = context.scene
+
+            # Reset stati di download/ricerca
+            scene.openshelf_is_downloading = False
+            scene.openshelf_is_searching = False
+            scene.openshelf_download_progress = 0
+            scene.openshelf_status_message = "UI state reset"
+
+            # Reset filtri e query
+            scene.openshelf_search_query = ""
+            scene.openshelf_object_type_filter = ""
+            scene.openshelf_material_filter = ""
+            scene.openshelf_chronology_filter = ""
+
+            # Cancella operazioni attive
+            try:
+                chunked_manager = get_chunked_download_manager()
+                chunked_manager.cancel_all_downloads()
+            except Exception as e:
+                print(f"OpenShelf: Warning during download cancellation: {e}")
+
+            # Force UI refresh completo
+            for area in context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+                    for region in area.regions:
+                        region.tag_redraw()
+
+            self.report({'INFO'}, "OpenShelf UI state reset successfully")
+            print("OpenShelf: UI state reset completed")
+
+            return {'FINISHED'}
+
+        except Exception as e:
+            error_msg = f"UI reset failed: {str(e)}"
+            self.report({'ERROR'}, error_msg)
+            print(f"OpenShelf: {error_msg}")
+            return {'CANCELLED'}
+
+
+class OPENSHELF_OT_test_chunked_download(Operator):
+    """Operatore di test per il sistema chunked download"""
+    bl_idname = "openshelf.test_chunked_download"
+    bl_label = "Test Chunked Download"
+    bl_description = "Test the chunked download system with a sample file"
+    bl_options = {'REGISTER'}
+
+    test_url: StringProperty(
+        name="Test URL",
+        description="URL to test chunked download with",
+        default="https://httpbin.org/drip?duration=5&numbytes=1048576"  # 1MB file over 5 seconds
+    )
+
+    def execute(self, context):
+        """Test del sistema chunked download"""
+        try:
+            scene = context.scene
+
+            # Inizializza manager
+            chunked_manager = get_chunked_download_manager()
+
+            # Progress callback di test
+            def test_progress_callback(downloaded, total):
+                if total > 0:
+                    progress = (downloaded / total) * 100
+                    print(f"Test download: {progress:.1f}% ({downloaded}/{total} bytes)")
+                else:
+                    print(f"Test download: {downloaded} bytes (size unknown)")
+
+            # Avvia download di test
+            session_id = chunked_manager.start_chunked_download(
+                self.test_url,
+                progress_callback=test_progress_callback,
+                use_cache=False
+            )
+
+            if session_id:
+                self.report({'INFO'}, f"Test download started: {session_id}")
+                print(f"OpenShelf: Test chunked download started - Session: {session_id}")
+
+                # Nota: il download continuerà in background attraverso i timer degli operatori modal attivi
+                scene.openshelf_status_message = f"Test download in progress: {session_id}"
+            else:
+                self.report({'ERROR'}, "Failed to start test download")
+
+            return {'FINISHED'}
+
+        except Exception as e:
+            error_msg = f"Test download failed: {str(e)}"
+            self.report({'ERROR'}, error_msg)
+            print(f"OpenShelf: {error_msg}")
+            return {'CANCELLED'}
 
 class OPENSHELF_OT_open_cache_directory(Operator):
     """Apre la cartella cache nel file manager"""
@@ -353,6 +648,72 @@ class OPENSHELF_OT_cache_health_report(bpy.types.Operator):
 
         return {'FINISHED'}
 
+class OPENSHELF_OT_quick_search(Operator):
+    """Operatore per ricerche rapide predefinite"""
+    bl_idname = "openshelf.quick_search"
+    bl_label = "Quick Search"
+    bl_description = "Perform predefined quick search"
+    bl_options = {'REGISTER'}
+
+    search_term: StringProperty(
+        name="Search Term",
+        description="Term to search for",
+        default=""
+    )
+
+    search_field: StringProperty(
+        name="Search Field",
+        description="Field to search in",
+        default="search"
+    )
+
+    def execute(self, context):
+        """Esegue ricerca rapida con feedback migliorato"""
+        scene = context.scene
+
+        if not self.search_term:
+            self.report({'ERROR'}, "No search term specified")
+            return {'CANCELLED'}
+
+        try:
+            # Imposta parametri di ricerca
+            if self.search_field == "object_type":
+                scene.openshelf_object_type_filter = self.search_term
+                scene.openshelf_search_query = ""  # Reset query generica
+                search_description = f"object type '{self.search_term}'"
+            elif self.search_field == "material":
+                scene.openshelf_material_filter = self.search_term
+                scene.openshelf_search_query = ""
+                search_description = f"material '{self.search_term}'"
+            elif self.search_field == "chronology":
+                scene.openshelf_chronology_filter = self.search_term
+                scene.openshelf_search_query = ""
+                search_description = f"chronology '{self.search_term}'"
+            else:  # search_field == "search" o altro
+                scene.openshelf_search_query = self.search_term
+                # Reset filtri specifici
+                scene.openshelf_object_type_filter = ""
+                scene.openshelf_material_filter = ""
+                scene.openshelf_chronology_filter = ""
+                search_description = f"general term '{self.search_term}'"
+
+            # Esegui ricerca automaticamente
+            result = bpy.ops.openshelf.search_assets()
+
+            if result == {'FINISHED'}:
+                self.report({'INFO'}, f"Quick search performed for {search_description}")
+                print(f"OpenShelf: Quick search executed - {search_description}")
+            else:
+                self.report({'WARNING'}, f"Quick search may have encountered issues")
+
+            return {'FINISHED'}
+
+        except Exception as e:
+            error_msg = f"Quick search failed: {str(e)}"
+            self.report({'ERROR'}, error_msg)
+            print(f"OpenShelf: {error_msg}")
+            return {'CANCELLED'}
+
 # Lista operatori da registrare
 operators = [
     OPENSHELF_OT_clear_repository_cache,
@@ -361,6 +722,9 @@ operators = [
     OPENSHELF_OT_migrate_cache,
     OPENSHELF_OT_cache_statistics,
     OPENSHELF_OT_cache_health_report,
+    OPENSHELF_OT_reset_ui_state,
+    OPENSHELF_OT_test_chunked_download,
+
 ]
 
 def register():
