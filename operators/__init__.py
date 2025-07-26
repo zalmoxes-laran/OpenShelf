@@ -73,6 +73,7 @@ import_operators = safe_import_operator_module('import_operators')
 repository_operators = safe_import_operator_module('repository_operators')
 modal_import_operators = safe_import_operator_module('modal_import_operators')
 cache_operators = safe_import_operator_module('cache_operators')
+library_import_operators = safe_import_operator_module('library_import_operators')
 
 # Moduli opzionali
 debug_operators = safe_import_operator_module('debug_operators')
@@ -86,6 +87,7 @@ for module_name, module in [
     ('repository_operators', repository_operators),
     ('modal_import_operators', modal_import_operators),
     ('cache_operators', cache_operators),
+    ('library_import_operators', library_import_operators),
     ('debug_operators', debug_operators),  # Opzionale
 ]:
     if module:

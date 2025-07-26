@@ -4,8 +4,9 @@ Pannello principale per ricerca asset culturali
 FIX: Gestione robusta operatori mancanti e selezione asset
 """
 
-import bpy
-from bpy.types import Panel
+import bpy # type: ignore
+from bpy.types import Panel # type: ignore
+from ..utils.local_library_manager import get_library_manager
 
 def check_operator_available(operator_idname):
     """Controlla se un operatore è disponibile"""
@@ -367,16 +368,33 @@ class OPENSHELF_PT_results_panel(Panel):
                 actions_box = box.box()
                 actions_row = actions_box.row(align=True)
 
-                # FIX: Controlla se gli operatori sono disponibili prima di usarli
-                if check_operator_available('openshelf.modal_import_asset'):
-                    import_op = actions_row.operator("openshelf.modal_import_asset", text="Import", icon='IMPORT')
-                    import_op.asset_id = selected_result.asset_id
-                else:
-                    # Mostra pulsante disabilitato se operatore non disponibile
-                    sub = actions_row.row()
-                    sub.enabled = False
-                    sub.label(text="Import", icon='ERROR')
-                    actions_box.label(text="⚠️ Import operators not available", icon='ERROR')
+                # NUOVO: Usa i nuovi operatori libreria
+                try:
+                    library_manager = get_library_manager()
+                    if library_manager.is_asset_downloaded(selected_result.asset_id):
+                        # Asset già in libreria - import veloce
+                        if check_operator_available('openshelf.import_from_library_only'):
+                            import_op = actions_row.operator("openshelf.import_from_library_only", text="Import", icon='CHECKMARK')
+                        else:
+                            import_op = actions_row.operator("openshelf.library_import_asset", text="Import", icon='CHECKMARK')
+                        import_op.asset_id = selected_result.asset_id
+                    else:
+                        # Asset non in libreria - download + import
+                        if check_operator_available('openshelf.library_import_asset'):
+                            import_op = actions_row.operator("openshelf.library_import_asset", text="Download", icon='IMPORT')
+                        else:
+                            # Fallback al vecchio operatore
+                            import_op = actions_row.operator("openshelf.modal_import_asset", text="Import", icon='IMPORT')
+                        import_op.asset_id = selected_result.asset_id
+                except:
+                    # Fallback se libreria non disponibile
+                    if check_operator_available('openshelf.modal_import_asset'):
+                        import_op = actions_row.operator("openshelf.modal_import_asset", text="Import", icon='IMPORT')
+                        import_op.asset_id = selected_result.asset_id
+                    else:
+                        sub = actions_row.row()
+                        sub.enabled = False
+                        sub.label(text="Import", icon='ERROR')
 
                 # Import con opzioni se disponibile
                 if check_operator_available('openshelf.import_asset_with_options'):
@@ -677,8 +695,15 @@ class OPENSHELF_UL_search_results(bpy.types.UIList):
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
             row = layout.row(align=True)
 
-            # 🔹 Icona iniziale per evitare padding e allineare bene
-            row.label(icon='OBJECT_DATAMODE')
+            # 🔹 Icona status libreria
+            try:
+                library_manager = get_library_manager()
+                if library_manager.is_asset_downloaded(item.asset_id):
+                    row.label(icon='CHECKMARK')  # ✓ Asset in libreria
+                else:
+                    row.label(icon='IMPORT')     # ⬇️ Asset da scaricare
+            except:
+                row.label(icon='OBJECT_DATAMODE')  # Fallback
 
             # 🔹 INVENTORY (6 caratteri max)
             inv = item.inventory_number[:6] if item.inventory_number else f"#{item.asset_id[:4]}"

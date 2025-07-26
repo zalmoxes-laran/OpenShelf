@@ -202,11 +202,11 @@ class OpenShelfPreferences(AddonPreferences):
             ('GENERAL', 'General', 'General settings'),
             ('IMPORT', 'Import', 'Import and download settings'),
             ('CACHE', 'Cache', 'Cache management settings'),
-            ('LIBRARY', "Library", "Local library settings")
+            ('LIBRARY', "Library", "Local library settings"),
             ('ADVANCED', 'Advanced', 'Advanced and debug settings'),
         ],
         default='GENERAL'
-    )
+    ) # type: ignore
 
     local_library_path: StringProperty(
         name="Local Library Path",
