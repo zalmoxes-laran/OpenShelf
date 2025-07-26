@@ -13,6 +13,7 @@ from bpy.props import (
     FloatProperty
 )
 import os
+import shutil
 
 class OpenShelfPreferences(AddonPreferences):
     """Preferenze addon OpenShelf"""
@@ -201,10 +202,32 @@ class OpenShelfPreferences(AddonPreferences):
             ('GENERAL', 'General', 'General settings'),
             ('IMPORT', 'Import', 'Import and download settings'),
             ('CACHE', 'Cache', 'Cache management settings'),
+            ('LIBRARY', "Library", "Local library settings")
             ('ADVANCED', 'Advanced', 'Advanced and debug settings'),
         ],
         default='GENERAL'
     )
+
+    local_library_path: StringProperty(
+        name="Local Library Path",
+        description="Path to the local 3D models library directory",
+        default="",
+        subtype='DIR_PATH'
+    )
+
+    auto_save_to_library: BoolProperty(
+        name="Auto-save to Library",
+        description="Automatically save downloaded models to local library",
+        default=True
+    )
+
+    show_library_status: BoolProperty(
+        name="Show Library Status",
+        description="Show if models are already in library in search results",
+        default=True
+    )
+
+
 
     def draw(self, context):
         """Disegna il pannello preferenze"""
@@ -221,8 +244,103 @@ class OpenShelfPreferences(AddonPreferences):
             self.draw_import_tab(layout)
         elif self.prefs_tab == "CACHE":
             self.draw_cache_tab(layout)
+        elif self.prefs_tab == 'LIBRARY':
+            self.draw_library_tab(layout)
         elif self.prefs_tab == "ADVANCED":
             self.draw_advanced_tab(layout)
+
+    def draw_library_tab(self, layout):
+        """Disegna tab impostazioni libreria locale"""
+
+        # Header informativo
+        info_box = layout.box()
+        info_box.alert = True
+        col = info_box.column(align=True)
+        col.scale_y = 0.8
+        col.label(text="📚 Local Library stores your 3D models permanently", icon='INFO')
+        col.label(text="   Faster access, offline use, and better organization")
+
+        # Impostazioni libreria principale
+        box = layout.box()
+        box.label(text="Library Settings", icon='OUTLINER_COLLECTION')
+
+        col = box.column()
+
+        # Path della libreria
+        library_row = col.row(align=True)
+        library_row.prop(self, "local_library_path", text="Library Path")
+
+        # Bottone per aprire cartella
+        open_op = library_row.operator("openshelf.open_library_folder", text="", icon='FOLDER_REDIRECT')
+
+        # Bottone per reset al default
+        reset_op = library_row.operator("openshelf.reset_library_path", text="", icon='LOOP_BACK')
+
+        # Impostazioni comportamento
+        settings_col = col.column()
+        settings_col.prop(self, "auto_save_to_library")
+        settings_col.prop(self, "show_library_status")
+
+        # Informazioni libreria attuale
+        box = layout.box()
+        box.label(text="📊 Library Information", icon='GRAPH')
+
+        try:
+            from ..utils.local_library_manager import get_library_manager
+            library_manager = get_library_manager()
+            stats = library_manager.get_library_stats()
+
+            if stats.get("error"):
+                error_col = box.column()
+                error_col.alert = True
+                error_col.label(text=f"❌ Error: {stats['error']}", icon='ERROR')
+            else:
+                # Statistiche
+                stats_col = box.column()
+                stats_col.scale_y = 0.9
+
+                asset_count = stats.get("asset_count", 0)
+                size_mb = stats.get("total_size_mb", 0)
+
+                stats_col.label(text=f"📦 Assets in library: {asset_count}")
+
+                if size_mb < 1:
+                    size_kb = size_mb * 1024
+                    stats_col.label(text=f"💾 Total size: {size_kb:.1f} KB")
+                else:
+                    stats_col.label(text=f"💾 Total size: {size_mb:.1f} MB")
+
+                # Path attuale
+                current_path = stats.get("library_path", "Unknown")
+                stats_col.label(text=f"📂 Location: {current_path}")
+
+                # Controlli libreria
+                controls_row = box.row(align=True)
+                controls_row.operator("openshelf.open_library_folder", text="Open Folder", icon='FOLDER_REDIRECT')
+                controls_row.operator("openshelf.refresh_library", text="Refresh", icon='FILE_REFRESH')
+
+                # Bottone per cleanup (se ci sono asset)
+                if asset_count > 0:
+                    cleanup_row = box.row()
+                    cleanup_row.alert = True
+                    cleanup_row.operator("openshelf.cleanup_library", text="Cleanup Library", icon='TRASH')
+
+        except Exception as e:
+            error_box = box.box()
+            error_box.alert = True
+            error_box.label(text=f"Cannot access library: {str(e)}", icon='ERROR')
+
+        # Informazioni aggiuntive
+        help_box = layout.box()
+        help_box.label(text="💡 Tips", icon='QUESTION')
+
+        help_col = help_box.column()
+        help_col.scale_y = 0.8
+        help_col.label(text="• Library organizes models by Asset ID in separate folders")
+        help_col.label(text="• Each asset includes metadata.json with cultural information")
+        help_col.label(text="• You can backup/sync the library folder across computers")
+        help_col.label(text="• Downloaded models work offline once in the library")
+
 
     def draw_general_tab(self, layout):
         """Disegna tab impostazioni generali"""
@@ -605,10 +723,129 @@ def get_addon_preferences(context=None):
     addon_name = __package__.split('.')[0]
     return context.preferences.addons[addon_name].preferences
 
+
+class OPENSHELF_OT_open_library_folder(Operator):
+    """Apre la cartella della libreria locale nel file manager"""
+    bl_idname = "openshelf.open_library_folder"
+    bl_label = "Open Library Folder"
+    bl_description = "Open the local library folder in file manager"
+
+    def execute(self, context):
+        try:
+            from ..utils.local_library_manager import get_library_manager
+            library_manager = get_library_manager()
+            library_manager.open_library_folder()
+            self.report({'INFO'}, "Library folder opened")
+        except Exception as e:
+            self.report({'ERROR'}, f"Cannot open library folder: {str(e)}")
+
+        return {'FINISHED'}
+
+
+class OPENSHELF_OT_reset_library_path(Operator):
+    """Reset del path della libreria al default"""
+    bl_idname = "openshelf.reset_library_path"
+    bl_label = "Reset Library Path"
+    bl_description = "Reset library path to default location"
+
+    def execute(self, context):
+        # Ottieni preferenze addon
+        addon_name = __name__.split('.')[0]
+        prefs = context.preferences.addons[addon_name].preferences
+
+        # Reset al path di default
+        prefs.local_library_path = ""
+
+        self.report({'INFO'}, "Library path reset to default")
+        return {'FINISHED'}
+
+
+class OPENSHELF_OT_refresh_library(Operator):
+    """Aggiorna informazioni libreria"""
+    bl_idname = "openshelf.refresh_library"
+    bl_label = "Refresh Library"
+    bl_description = "Refresh library information and statistics"
+
+    def execute(self, context):
+        try:
+            # Forza ricreazione del library manager
+            from ..utils.local_library_manager import get_library_manager
+            global _global_library_manager
+            _global_library_manager = None
+
+            # Ricrea manager
+            library_manager = get_library_manager()
+            stats = library_manager.get_library_stats()
+
+            if stats.get("error"):
+                self.report({'ERROR'}, f"Library error: {stats['error']}")
+            else:
+                asset_count = stats.get("asset_count", 0)
+                self.report({'INFO'}, f"Library refreshed: {asset_count} assets found")
+
+        except Exception as e:
+            self.report({'ERROR'}, f"Cannot refresh library: {str(e)}")
+
+        return {'FINISHED'}
+
+
+class OPENSHELF_OT_cleanup_library(Operator):
+    """Cleanup della libreria locale"""
+    bl_idname = "openshelf.cleanup_library"
+    bl_label = "Cleanup Library"
+    bl_description = "Remove invalid or corrupted assets from library"
+
+    # Conferma prima della cancellazione
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context):
+        try:
+            from ..utils.local_library_manager import get_library_manager
+            library_manager = get_library_manager()
+
+            # Trova asset corrotti o incompleti
+            models_dir = library_manager.models_dir
+            cleaned_count = 0
+
+            for asset_dir in models_dir.iterdir():
+                if asset_dir.is_dir():
+                    # Controlla se ha metadata.json
+                    metadata_file = asset_dir / "metadata.json"
+                    if not metadata_file.exists():
+                        shutil.rmtree(asset_dir)
+                        cleaned_count += 1
+                        continue
+
+                    # Controlla se ha almeno un file 3D
+                    has_3d_file = False
+                    for ext in ['.obj', '.gltf', '.glb']:
+                        if list(asset_dir.glob(f"*{ext}")):
+                            has_3d_file = True
+                            break
+
+                    if not has_3d_file:
+                        shutil.rmtree(asset_dir)
+                        cleaned_count += 1
+
+            if cleaned_count > 0:
+                self.report({'INFO'}, f"Cleaned up {cleaned_count} invalid assets")
+            else:
+                self.report({'INFO'}, "Library is clean, no action needed")
+
+        except Exception as e:
+            self.report({'ERROR'}, f"Cleanup error: {str(e)}")
+
+        return {'FINISHED'}
+
 # Lista classi da registrare
 classes = [
     OpenShelfPreferences,
     OPENSHELF_OT_reset_preferences,
+    OPENSHELF_OT_open_library_folder,
+    OPENSHELF_OT_reset_library_path,
+    OPENSHELF_OT_refresh_library,
+    OPENSHELF_OT_cleanup_library,
 ]
 
 def register():
