@@ -350,9 +350,25 @@ class OPENSHELF_OT_library_import_asset(Operator):
             imported_obj = None
 
             if file_ext == '.obj':
-                imported_obj = OBJLoader.import_obj_with_metadata(
-                    model_file, asset_dict, import_settings
-                )
+                # Usa il metodo corretto per i metadati culturali
+                if hasattr(OBJLoader, 'import_with_cultural_metadata'):
+                    imported_obj = OBJLoader.import_with_cultural_metadata(model_file, asset_dict)
+                elif hasattr(OBJLoader, 'import_obj'):
+                    # Prova con istanza invece di metodo statico
+                    loader = OBJLoader()
+                    imported_obj = loader.import_obj(model_file, import_settings)
+                elif hasattr(OBJLoader, 'load_obj'):\
+                    imported_obj = OBJLoader.load_obj(model_file, import_settings)
+                else:
+                    # Fallback: import Blender standard
+                    bpy.ops.wm.obj_import(filepath=model_file)
+                    imported_obj = bpy.context.selected_objects[0] if bpy.context.selected_objects else None
+
+                # Se l'import è andato a buon fine, aggiungi i metadati manualmente
+                if imported_obj and import_settings.get('add_metadata', True):
+                    for key, value in asset_dict.items():
+                        if isinstance(value, (str, int, float)):
+                            imported_obj[f"openshelf_{key}"] = value
             elif file_ext in ['.gltf', '.glb']:
                 imported_obj = GLTFLoader.import_gltf_with_metadata(
                     model_file, asset_dict, import_settings

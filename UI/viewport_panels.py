@@ -5,7 +5,7 @@ Pannelli aggiuntivi nel viewport 3D
 
 import bpy
 from bpy.types import Panel
-
+from .search_panel import check_operator_available
 
 class OPENSHELF_PT_statistics_panel(Panel):
     """Pannello statistiche repository"""
@@ -56,19 +56,16 @@ class OPENSHELF_PT_statistics_panel(Panel):
                 if result.quality_score > 0:
                     quality_scores.append(result.quality_score)
 
-            # Mostra conteggi
-            col.label(text=f"Total results: {len(scene.openshelf_search_results)}")
+            # Mostra conteggi col.label(text=f"Total results: {len(scene.openshelf_search_results)}")
 
             if len(repo_counts) > 1:
                 col.label(text="By repository:")
-                for repo, count in sorted(repo_counts.items(), key=lambda x: x[1], reverse=True):
-                    col.label(text=f"  • {repo}: {count}")
+                for repo, count in sorted(repo_counts.items(), key=lambda x: x[1], reverse=True): col.label(text=f"  • {repo}: {count}")
 
             if len(type_counts) > 1:
                 col.label(text="By type:")
                 top_types = sorted(type_counts.items(), key=lambda x: x[1], reverse=True)[:3]
-                for obj_type, count in top_types:
-                    col.label(text=f"  • {obj_type}: {count}")
+                for obj_type, count in top_types: col.label(text=f"  • {obj_type}: {count}")
 
                 if len(type_counts) > 3:
                     col.label(text=f"  ... and {len(type_counts) - 3} more")
@@ -89,45 +86,15 @@ class OPENSHELF_PT_statistics_panel(Panel):
             from ..utils.download_manager import get_download_manager
             dm = get_download_manager()
             cache_stats = dm.get_cache_statistics()
-
             col.label(text=f"Cache: {cache_stats['file_count']} files")
             cache_size_mb = cache_stats['cache_size'] / (1024*1024)
             col.label(text=f"Size: {cache_size_mb:.1f} MB")
 
-        except Exception:
-            col.label(text="Cache: Not available")
+        except Exception: col.label(text="Cache: Not available")
 
         # Link alle preferenze per gestione cache
         col.separator()
         col.operator("preferences.addon_show", text="Manage Cache", icon='PREFERENCES').module = __package__.split('.')[0]
-
-        '''
-        # Info cache
-        box = layout.box()
-        box.label(text="Cache Info", icon='FILE_CACHE')
-
-        col = box.column(align=True)
-        col.scale_y = 0.8
-
-        try:
-            from ..utils.download_manager import get_download_manager
-            dm = get_download_manager()
-            cache_stats = dm.get_cache_statistics()
-
-            col.label(text=f"Cache: {cache_stats['file_count']} files")
-            cache_size_mb = cache_stats['cache_size'] / (1024*1024)
-            col.label(text=f"Size: {cache_size_mb:.1f} MB")
-
-        except Exception:
-            col.label(text="Cache: Not available")
-
-        # Azioni pulizia
-        row = col.row(align=True)
-        row.scale_y = 0.8
-        clear_op = row.operator("openshelf.clear_repository_cache", text="Clear", icon='TRASH')
-        clear_op.repository_name = "all"
-        clear_op.confirm = True
-        '''
 
 class OPENSHELF_PT_object_info(Panel):
     """Pannello informazioni oggetto OpenShelf"""
@@ -185,7 +152,7 @@ class OPENSHELF_PT_object_info(Panel):
             description = openshelf_props['openshelf_description']
             if len(description) > 100:
                 description = description[:100] + "..."
-            box.label(text=f"Description:")
+                box.label(text=f"Description:")
 
             # Spezza descrizione in righe
             words = description.split(' ')
@@ -316,8 +283,7 @@ class OPENSHELF_PT_quick_actions(Panel):
         romano_op.search_field = "search"
 
         # Gestione cache
-        #box = layout.box()
-        #box.label(text="Cache Management", icon='FILE_CACHE')
+        #box = layout.box() #box.label(text="Cache Management", icon='FILE_CACHE')
 
         #col = box.column(align=True)
         #clear_op = col.operator("openshelf.clear_repository_cache", text="Clear Cache", icon='TRASH')
@@ -329,8 +295,10 @@ class OPENSHELF_PT_quick_actions(Panel):
         box.label(text="Utilities", icon='TOOL_SETTINGS')
 
         col = box.column(align=True)
-        col.operator("openshelf.export_repository_config", text="Export Config", icon='EXPORT')
-        col.operator("openshelf.add_custom_repository", text="Add Repository", icon='ADD')
+
+        # Usa il sistema di check esistente
+        col.label(text="Export Config (Coming Soon)", icon='EXPORT')
+        col.label(text="Add Repository (Coming Soon)", icon='ADD')
 
 class OPENSHELF_PT_help_panel(Panel):
     """Pannello aiuto"""
@@ -351,7 +319,6 @@ class OPENSHELF_PT_help_panel(Panel):
 
         col = box.column(align=True)
         col.scale_y = 0.8
-
         col.label(text="1. Select repository")
         col.label(text="2. Enter search terms")
         col.label(text="3. Apply filters if needed")
@@ -364,7 +331,6 @@ class OPENSHELF_PT_help_panel(Panel):
 
         col = box.column(align=True)
         col.scale_y = 0.8
-
         col.label(text="• Use specific terms for better results")
         col.label(text="• Try different repositories")
         col.label(text="• Check asset quality before import")
@@ -377,7 +343,6 @@ class OPENSHELF_PT_help_panel(Panel):
 
         col = box.column(align=True)
         col.scale_y = 0.8
-
         col.label(text="OpenShelf v1.0.0")
         col.label(text="Cultural Heritage Assets")
         col.label(text="GPL-3.0-or-later")

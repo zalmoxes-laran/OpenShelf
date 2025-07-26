@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Any
 import tempfile
 import zipfile
 import uuid
+import time
 
 class LocalLibraryManager:
     """Gestisce la libreria locale di modelli 3D"""
@@ -86,7 +87,8 @@ class LocalLibraryManager:
 
         try:
             # Aggiungi timestamp
-            metadata['downloaded_at'] = str(Path().ctime())
+            import time
+            metadata['downloaded_at'] = time.strftime('%Y-%m-%d %H:%M:%S')
             metadata['library_version'] = "1.0"
 
             with open(metadata_file, 'w', encoding='utf-8') as f:

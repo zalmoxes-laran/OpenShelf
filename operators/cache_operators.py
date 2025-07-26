@@ -5,7 +5,7 @@ Operatori per gestione cache e cartelle personalizzate
 
 import bpy # type: ignore
 from bpy.types import Operator # type: ignore
-from bpy.props import StringProperty, BoolProperty # type: ignore
+from bpy.props import StringProperty, BoolProperty, EnumProperty # type: ignore
 import os
 import subprocess
 import platform

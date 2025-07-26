@@ -3,9 +3,10 @@ OpenShelf Preferences Panel
 Pannello preferenze addon
 """
 
-import bpy
-from bpy.types import AddonPreferences
-from bpy.props import (
+import bpy # type: ignore
+from bpy.types import AddonPreferences, Operator # type: ignore
+from bpy.types import Panel # type: ignore
+from bpy.props import ( # type: ignore
     StringProperty,
     BoolProperty,
     IntProperty,
