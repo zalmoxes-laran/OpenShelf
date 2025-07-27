@@ -368,33 +368,25 @@ class OPENSHELF_PT_results_panel(Panel):
                 actions_box = box.box()
                 actions_row = actions_box.row(align=True)
 
-                # NUOVO: Usa i nuovi operatori libreria
+                # NUOVO: Usa il nuovo operatore sincrono semplice
                 try:
                     library_manager = get_library_manager()
                     if library_manager.is_asset_downloaded(selected_result.asset_id):
-                        # Asset già in libreria - import veloce
-                        if check_operator_available('openshelf.import_from_library_only'):
-                            import_op = actions_row.operator("openshelf.import_from_library_only", text="Import", icon='CHECKMARK')
-                        else:
-                            import_op = actions_row.operator("openshelf.library_import_asset", text="Import", icon='CHECKMARK')
+                        # Asset già in libreria - import diretto
+                        print(f"OpenShelf UI: Asset {selected_result.asset_id} found in library")
+                        import_op = actions_row.operator("openshelf.simple_sync_import", text="Import", icon='CHECKMARK')
                         import_op.asset_id = selected_result.asset_id
                     else:
                         # Asset non in libreria - download + import
-                        if check_operator_available('openshelf.library_import_asset'):
-                            import_op = actions_row.operator("openshelf.library_import_asset", text="Download", icon='IMPORT')
-                        else:
-                            # Fallback al vecchio operatore
-                            import_op = actions_row.operator("openshelf.modal_import_asset", text="Import", icon='IMPORT')
+                        print(f"OpenShelf UI: Asset {selected_result.asset_id} not in library, will download")
+                        import_op = actions_row.operator("openshelf.simple_sync_import", text="Download", icon='IMPORT')
                         import_op.asset_id = selected_result.asset_id
-                except:
-                    # Fallback se libreria non disponibile
-                    if check_operator_available('openshelf.modal_import_asset'):
-                        import_op = actions_row.operator("openshelf.modal_import_asset", text="Import", icon='IMPORT')
-                        import_op.asset_id = selected_result.asset_id
-                    else:
-                        sub = actions_row.row()
-                        sub.enabled = False
-                        sub.label(text="Import", icon='ERROR')
+
+                except Exception as e:
+                    print(f"OpenShelf UI: Error checking library, using fallback: {e}")
+                    # Fallback - usa sempre il nuovo operatore sincrono
+                    import_op = actions_row.operator("openshelf.simple_sync_import", text="Import", icon='IMPORT')
+                    import_op.asset_id = selected_result.asset_id
 
                 # Import con opzioni se disponibile
                 if check_operator_available('openshelf.import_asset_with_options'):

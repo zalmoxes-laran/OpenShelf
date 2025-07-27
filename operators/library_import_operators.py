@@ -396,6 +396,293 @@ class OPENSHELF_OT_library_import_asset(Operator):
             return None
 
 
+# Aggiungi questo a operators/library_import_operators.py
+
+class OPENSHELF_OT_simple_sync_import(Operator):
+    """Importa asset in modo completamente sincrono - NO MODAL, NO THREADING, NO TIMER"""
+    bl_idname = "openshelf.simple_sync_import"
+    bl_label = "Simple Import (Sync)"
+    bl_description = "Import asset synchronously without any background processing"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    asset_id: StringProperty(name="Asset ID", default="")
+    import_scale: FloatProperty(name="Import Scale", default=1.0, min=0.01, max=100.0)
+    auto_center: BoolProperty(name="Auto Center", default=True)
+    apply_materials: BoolProperty(name="Apply Materials", default=True)
+    add_metadata: BoolProperty(name="Add Metadata", default=True)
+
+    def execute(self, context):
+        """Esecuzione completamente sincrona - tutto nel main thread"""
+        scene = context.scene
+
+        try:
+            # Step 1: Trova asset data
+            print(f"OpenShelf SYNC: Starting import of {self.asset_id}")
+
+            asset_data = None
+            for cached_asset in scene.openshelf_assets_cache:
+                if cached_asset.asset_id == self.asset_id:
+                    asset_data = cached_asset
+                    break
+
+            if not asset_data:
+                self.report({'ERROR'}, f"Asset '{self.asset_id}' not found in cache")
+                return {'CANCELLED'}
+
+            # Step 2: Setup library manager
+            library_manager = get_library_manager()
+
+            # Step 3: Check se già in libreria
+            if library_manager.is_asset_downloaded(self.asset_id):
+                print(f"OpenShelf SYNC: Asset found in library, importing directly")
+                return self._import_from_library_direct(context, library_manager, asset_data)
+            else:
+                print(f"OpenShelf SYNC: Asset not in library, downloading...")
+                return self._download_and_import_direct(context, library_manager, asset_data)
+
+        except Exception as e:
+            print(f"OpenShelf SYNC: Error during import: {e}")
+            import traceback
+            traceback.print_exc()
+            self.report({'ERROR'}, f"Import failed: {str(e)}")
+            return {'CANCELLED'}
+
+    def _import_from_library_direct(self, context, library_manager, asset_data):
+        """Importa direttamente dalla libreria con progress feedback"""
+
+        # Progress bar per import locale (più veloce)
+        wm = context.window_manager
+        wm.progress_begin(0, 100)
+
+        try:
+            # Step 1: Find model file (20%)
+            wm.progress_update(20)
+            model_file = library_manager._get_primary_model_file(self.asset_id)
+
+            if not model_file or not os.path.exists(model_file):
+                wm.progress_end()
+                self.report({'ERROR'}, f"Model file not found for asset {self.asset_id}")
+                return {'CANCELLED'}
+
+            print(f"OpenShelf SYNC: Importing from library: {model_file}")
+
+            # Step 2: Import file (20-90%)
+            wm.progress_update(50)
+            self.report({'INFO'}, f"Importing {asset_data.name} from library...")
+
+            imported_obj = self._do_simple_import(context, model_file, asset_data)
+
+            # Step 3: Finalize (90-100%)
+            wm.progress_update(90)
+
+            if imported_obj:
+                wm.progress_update(100)
+                self.report({'INFO'}, f"Successfully imported {asset_data.name}")
+                return {'FINISHED'}
+            else:
+                wm.progress_end()
+                self.report({'ERROR'}, "Import failed")
+                return {'CANCELLED'}
+
+        except Exception as e:
+            wm.progress_end()
+            print(f"OpenShelf SYNC: Library import error: {e}")
+            self.report({'ERROR'}, f"Library import error: {str(e)}")
+            return {'CANCELLED'}
+
+        finally:
+            wm.progress_end()
+
+    def _download_and_import_direct(self, context, library_manager, asset_data):
+        """Download + import tutto sincrono con Progress Bar nativa di Blender"""
+
+        # Inizializza progress bar nativa di Blender
+        wm = context.window_manager
+        wm.progress_begin(0, 100)
+
+        try:
+            # Step 1: Parse URLs (5%)
+            wm.progress_update(5)
+            import json
+            try:
+                model_urls = json.loads(asset_data.model_urls) if asset_data.model_urls else []
+                if isinstance(model_urls, str):
+                    model_urls = [model_urls]
+            except:
+                model_urls = [asset_data.model_urls] if asset_data.model_urls else []
+
+            model_urls = [url.strip() for url in model_urls if url and url.strip()]
+
+            if not model_urls:
+                wm.progress_end()
+                self.report({'ERROR'}, "No valid model URLs found")
+                return {'CANCELLED'}
+
+            print(f"OpenShelf SYNC: Downloading from {len(model_urls)} URLs...")
+
+            # Step 2: Setup download (10%)
+            wm.progress_update(10)
+
+            # Progress callback che aggiorna la progress bar
+            def progress_callback(message):
+                print(f"OpenShelf SYNC: {message}")
+
+                # Aggiorna progress bar basandosi sul messaggio
+                if "Trying download" in message:
+                    wm.progress_update(20)
+                elif "Downloading" in message and "%" in message:
+                    # Estrai percentuale dal messaggio se presente
+                    try:
+                        percent_str = message.split("%")[0].split()[-1]
+                        download_percent = int(percent_str)
+                        # Map download progress to 20-70% della progress bar totale
+                        total_progress = 20 + (download_percent * 50 // 100)
+                        wm.progress_update(total_progress)
+                    except:
+                        pass
+                elif "Extracting" in message:
+                    wm.progress_update(75)
+                elif "Organizing" in message:
+                    wm.progress_update(85)
+                elif "complete" in message:
+                    wm.progress_update(90)
+
+            # Step 3: Download (20-90%)
+            self.report({'INFO'}, f"Downloading {asset_data.name}...")
+
+            model_file = library_manager.download_asset_to_library(
+                asset_data,
+                model_urls,
+                progress_callback
+            )
+
+            if not model_file:
+                wm.progress_end()
+                self.report({'ERROR'}, "Failed to download asset")
+                return {'CANCELLED'}
+
+            print(f"OpenShelf SYNC: Downloaded to {model_file}")
+
+            # Step 4: Import (90-95%)
+            wm.progress_update(92)
+            self.report({'INFO'}, f"Importing {asset_data.name}...")
+
+            imported_obj = self._do_simple_import(context, model_file, asset_data)
+
+            # Step 5: Finalize (95-100%)
+            wm.progress_update(98)
+
+            if imported_obj:
+                wm.progress_update(100)
+                self.report({'INFO'}, f"Successfully downloaded and imported {asset_data.name}")
+                return {'FINISHED'}
+            else:
+                wm.progress_end()
+                self.report({'ERROR'}, "Import failed after download")
+                return {'CANCELLED'}
+
+        except Exception as e:
+            wm.progress_end()
+            print(f"OpenShelf SYNC: Download and import error: {e}")
+            import traceback
+            traceback.print_exc()
+            self.report({'ERROR'}, f"Download and import error: {str(e)}")
+            return {'CANCELLED'}
+
+        finally:
+            # SEMPRE termina la progress bar
+            wm.progress_end()
+
+    def _do_simple_import(self, context, model_file, asset_data):
+        """Import semplice con mini progress updates"""
+        try:
+            if not os.path.exists(model_file):
+                raise Exception(f"Model file not found: {model_file}")
+
+            file_ext = os.path.splitext(model_file)[1].lower()
+
+            print(f"OpenShelf SYNC: Importing {file_ext} file: {model_file}")
+
+            # Clear selection
+            bpy.ops.object.select_all(action='DESELECT')
+            original_objects = set(context.scene.objects)
+
+            # Import basato sull'estensione
+            if file_ext == '.obj':
+                import_params = {
+                    'filepath': model_file,
+                    'use_split_objects': True,
+                    'use_split_groups': False,
+                    'forward_axis': 'NEGATIVE_Z',
+                    'up_axis': 'Y',
+                }
+
+                print(f"OpenShelf SYNC: Calling bpy.ops.wm.obj_import...")
+                result = bpy.ops.wm.obj_import(**import_params)
+                print(f"OpenShelf SYNC: OBJ import result: {result}")
+
+                # Trova oggetti importati
+                new_objects = [obj for obj in context.scene.objects if obj not in original_objects]
+
+                if new_objects:
+                    main_object = new_objects[0]
+                    print(f"OpenShelf SYNC: Found imported object: {main_object.name}")
+
+                    # Applica trasformazioni
+                    if self.import_scale != 1.0:
+                        main_object.scale = (self.import_scale, self.import_scale, self.import_scale)
+                        bpy.context.view_layer.objects.active = main_object
+                        main_object.select_set(True)
+                        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+                    # Center se richiesto
+                    if self.auto_center:
+                        bpy.context.view_layer.objects.active = main_object
+                        main_object.select_set(True)
+                        bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
+                        main_object.location = (0, 0, 0)
+
+                    # Aggiungi metadata
+                    if self.add_metadata:
+                        main_object['openshelf_id'] = asset_data.asset_id
+                        main_object['openshelf_name'] = asset_data.name
+                        main_object['openshelf_description'] = asset_data.description
+                        main_object['openshelf_repository'] = asset_data.repository
+                        main_object['openshelf_object_type'] = asset_data.object_type or "artifact"
+                        main_object['openshelf_inventory_number'] = asset_data.inventory_number or ""
+
+                        # Rinomina oggetto
+                        object_type = asset_data.object_type or "artifact"
+                        main_object.name = f"{main_object.name}_{object_type}"
+
+                    # IMPORTANTE: Seleziona e centra vista
+                    bpy.context.view_layer.objects.active = main_object
+                    bpy.ops.object.select_all(action='DESELECT')
+                    main_object.select_set(True)
+
+                    # Centra la vista sull'oggetto importato
+                    print(f"OpenShelf SYNC: Centering view on {main_object.name}")
+
+                    # Force UI update prima di centrare la vista
+                    bpy.context.view_layer.update()
+                    for area in bpy.context.screen.areas:
+                        if area.type == 'VIEW_3D':
+                            area.tag_redraw()
+
+                    # Centra vista
+                    bpy.ops.view3d.view_selected()
+
+                    print(f"OpenShelf SYNC: Successfully imported and set up {main_object.name}")
+                    return main_object
+                else:
+                    raise Exception("No objects were imported from file")
+
+            else:
+                raise Exception(f"Unsupported file format: {file_ext}")
+
+        except Exception as e:
+            print(f"OpenShelf SYNC: Simple import error: {e}")
+            return None
 class OPENSHELF_OT_import_from_library_only(Operator):
     """Importa un asset SOLO se già presente nella libreria locale"""
     bl_idname = "openshelf.import_from_library_only"
@@ -454,6 +741,7 @@ class OPENSHELF_OT_import_from_library_only(Operator):
 classes = [
     OPENSHELF_OT_library_import_asset,
     OPENSHELF_OT_import_from_library_only,
+    OPENSHELF_OT_simple_sync_import,
 ]
 
 def register():
