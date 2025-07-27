@@ -166,7 +166,7 @@ class OPENSHELF_OT_library_import_asset(Operator):
         return {'FINISHED'}
 
     def _download_to_library_thread(self, thread_params):
-        """Thread per scaricare asset nella libreria locale"""
+        """Thread per scaricare asset nella libreria locale - FIX COMUNICAZIONE FINALE"""
         try:
             asset_data = thread_params['asset_data']
 
@@ -175,40 +175,44 @@ class OPENSHELF_OT_library_import_asset(Operator):
                 _library_import_state.status_message = "Preparing download..."
                 _library_import_state.download_progress = 5
 
-            # Ottieni URLs
-            try:
-                model_urls = json.loads(asset_data.model_urls) if asset_data.model_urls else []
-                if isinstance(model_urls, str):
-                    model_urls = [model_urls]
-            except:
-                model_urls = [asset_data.model_urls] if asset_data.model_urls else []
-
-            model_urls = [url.strip() for url in model_urls if url and url.strip()]
-
-            if not model_urls:
-                with _library_import_state.lock:
-                    _library_import_state.error_message = "No valid model URLs found"
-                return
-
-            # Progress callback per il download
+            # FIX CRITICO: Progress callback che aggiorna lo stato del thread
             def progress_callback(message):
+                print(f"OpenShelf: Download thread progress: {message}")  # Debug
                 with _library_import_state.lock:
                     _library_import_state.status_message = message
-                    # Incrementa gradualmente il progresso
-                    if "Downloading" in message:
-                        _library_import_state.download_progress = min(80, _library_import_state.download_progress + 5)
-                    elif "Extracting" in message:
-                        _library_import_state.download_progress = 85
-                    elif "Organizing" in message:
-                        _library_import_state.download_progress = 90
-                    elif "complete" in message:
-                        _library_import_state.download_progress = 95
 
-            # Scarica nella libreria
+                    # Aggiorna progress in base al messaggio
+                    if "Starting download" in message:
+                        _library_import_state.download_progress = 10
+                    elif "Downloading" in message and "%" in message:
+                        try:
+                            percent = int(''.join(filter(str.isdigit, message.split('%')[0])))
+                            _library_import_state.download_progress = 10 + (percent * 0.6)  # 10-70%
+                        except:
+                            _library_import_state.download_progress = min(70, _library_import_state.download_progress + 5)
+                    elif "Extracting" in message:
+                        _library_import_state.download_progress = 75
+                    elif "Organizing" in message:
+                        if "%" in message:
+                            try:
+                                percent = int(''.join(filter(str.isdigit, message.split('%')[0])))
+                                _library_import_state.download_progress = 80 + (percent * 0.15)  # 80-95%
+                            except:
+                                _library_import_state.download_progress = 85
+                        else:
+                            _library_import_state.download_progress = 85
+                    elif "organized" in message.lower() or "complete" in message.lower() or "ready" in message.lower():
+                        # FIX CRITICO: Marca download come completato
+                        _library_import_state.download_progress = 100
+                        print(f"OpenShelf: Download marked as complete: {message}")
+
+            # Scarica nella libreria con callback
             library_manager = get_library_manager()
-            model_file = library_manager.download_asset_to_library(
-                asset_data, model_urls, progress_callback
+            model_file = library_manager.download_asset(
+                asset_data, progress_callback=progress_callback
             )
+
+            print(f"OpenShelf: Download thread completed, model_file: {model_file}")
 
             if not model_file:
                 with _library_import_state.lock:
@@ -230,10 +234,12 @@ class OPENSHELF_OT_library_import_asset(Operator):
                 }
             }
 
+            # FIX CRITICO: Assicurati che il download sia marcato come completo
             with _library_import_state.lock:
                 _library_import_state.download_progress = 100
                 _library_import_state.status_message = "Download complete, preparing import..."
                 _library_import_state.pending_import_data = import_data
+                print("OpenShelf: Download thread state updated - import data ready")
 
         except Exception as e:
             print(f"OpenShelf: Library download error: {e}")
@@ -243,7 +249,7 @@ class OPENSHELF_OT_library_import_asset(Operator):
                 _library_import_state.error_message = f"Download error: {str(e)}"
 
     def _update_library_ui_state(self):
-        """Aggiorna UI con stato dal thread - per libreria locale"""
+        """Aggiorna UI con stato dal thread - FIX TERMINAZIONE GARANTITA"""
         try:
             context = bpy.context
             scene = context.scene
@@ -254,14 +260,29 @@ class OPENSHELF_OT_library_import_asset(Operator):
                 scene.openshelf_download_progress = _library_import_state.download_progress
                 scene.openshelf_status_message = _library_import_state.status_message
 
-                # Controlla se c'è un import da eseguire
+                # Debug progress
+                if _library_import_state.download_progress >= 100:
+                    print(f"OpenShelf: UI update - download at 100%, checking for import data")
+
+                # FIX CRITICO: Controlla se c'è un import da eseguire
                 if _library_import_state.pending_import_data:
+                    print("OpenShelf: Executing import from library data")
                     import_data = _library_import_state.pending_import_data
                     _library_import_state.pending_import_data = None
+                    _library_import_state.is_downloading = False  # Stop il loop
 
                     # Esegui import nel main thread
                     self._do_import_from_library_data(context, import_data)
-                    return None
+                    return None  # Stop il timer
+
+                # FIX CRITICO: Se progress = 100% ma nessun import data, forza stop
+                if _library_import_state.download_progress >= 100 and not _library_import_state.pending_import_data:
+                    print("OpenShelf: Progress 100% reached, forcing completion")
+                    scene.openshelf_is_downloading = False
+                    scene.openshelf_status_message = "Download completed"
+                    _library_import_state.is_downloading = False
+                    _library_import_state.completed = True
+                    return None  # Stop il timer
 
                 # Controlla errori
                 if _library_import_state.error_message:
@@ -269,40 +290,52 @@ class OPENSHELF_OT_library_import_asset(Operator):
                     scene.openshelf_is_downloading = False
                     scene.openshelf_download_progress = 0
                     _library_import_state.is_downloading = False
-                    return None
+                    print(f"OpenShelf: Error in download: {_library_import_state.error_message}")
+                    return None  # Stop il timer
 
                 # Controlla se completato
                 if _library_import_state.completed:
                     scene.openshelf_is_downloading = False
                     _library_import_state.is_downloading = False
-                    return None
+                    print("OpenShelf: Download marked as completed")
+                    return None  # Stop il timer
 
             # Aggiorna UI
             for area in context.screen.areas:
                 if area.type == 'VIEW_3D':
                     area.tag_redraw()
 
-            # Continua timer se download in corso
+            # FIX CRITICO: Continua timer SOLO se download in corso
             return 0.1 if _library_import_state.is_downloading else None
 
         except Exception as e:
             print(f"OpenShelf: Library UI update error: {e}")
+            # In caso di errore, forza stop
+            try:
+                context.scene.openshelf_is_downloading = False
+                _library_import_state.is_downloading = False
+            except:
+                pass
             return None
 
     def _do_import_from_library_data(self, context, import_data):
-        """Esegue l'import dai dati della libreria"""
+        """Esegue l'import dai dati della libreria - FIX FINALE"""
         try:
             model_file = import_data['model_file']
             asset_data = import_data['asset_data']
             metadata = import_data['metadata']
             import_settings = import_data['import_settings']
 
+            print(f"OpenShelf: Executing final import of {model_file}")
+
             imported_obj = self._do_import(context, model_file, asset_data, metadata, import_settings)
 
             if imported_obj:
                 context.scene.openshelf_status_message = f"Successfully imported {asset_data.name}"
+                print(f"OpenShelf: Import successful: {asset_data.name}")
                 with _library_import_state.lock:
                     _library_import_state.completed = True
+                    _library_import_state.is_downloading = False
             else:
                 with _library_import_state.lock:
                     _library_import_state.error_message = "Import failed"

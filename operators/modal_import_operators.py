@@ -154,45 +154,47 @@ class OPENSHELF_OT_modal_import_asset(Operator):
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        """Event handler per modal operator - FIX VELOCE"""
+        """Event handler per modal operator - FIX TERMINAZIONE GARANTITA"""
 
-        # FIX: Controlla se siamo in stato COMPLETE o ERROR e termina immediatamente
+        # FIX CRITICO: Termina immediatamente se in stato finale
         if self._current_step == 'COMPLETE':
-            print("OpenShelf: COMPLETE state detected - forcing termination")
-            self._cleanup_and_finish(context, 'FINISHED', "Import completed successfully!")
+            print("OpenShelf: COMPLETE detected - terminating immediately")
+            self._cleanup_and_finish(context, 'FINISHED', "Import completed!")
             return {'FINISHED'}
 
         if self._current_step == 'ERROR':
-            print("OpenShelf: ERROR state detected - forcing termination")
+            print("OpenShelf: ERROR detected - terminating immediately")
             error_msg = self._error_message or "Import failed"
             self._cleanup_and_finish(context, 'ERROR', error_msg)
             return {'CANCELLED'}
 
+        # Gestione eventi
         if event.type == 'TIMER':
-            # Check timeout
+            # Timeout globale
             if time.time() - self._start_time > self._timeout:
-                print("OpenShelf: Modal import timeout")
-                self._cleanup_and_finish(context, 'TIMEOUT')
+                print("OpenShelf: Global timeout reached")
+                self._cleanup_and_finish(context, 'TIMEOUT', "Import timeout")
                 return {'CANCELLED'}
 
-            # Update smooth progress
+            # Aggiorna progress smooth
             self._update_smooth_progress()
 
-            # Process current step
-            if self._current_step == 'INIT':
-                return self._step_init(context)
-            elif self._current_step == 'DOWNLOAD':
-                return self._step_download(context)
-            elif self._current_step == 'EXTRACT':
-                return self._step_extract(context)
-            elif self._current_step == 'IMPORT':
-                result = self._step_import(context)
+            # Processa step corrente
+            try:
+                if self._current_step == 'INIT':
+                    return self._step_init(context)
+                elif self._current_step == 'DOWNLOAD':
+                    return self._step_download(context)
+                elif self._current_step == 'IMPORT':
+                    return self._step_import(context)
+                elif self._current_step == 'COMPLETE':
+                    return self._step_complete(context)
 
-                # FIX: Dopo l'import, se siamo in COMPLETE, termina al prossimo ciclo
-                if self._current_step == 'COMPLETE':
-                    print("OpenShelf: Import step completed, will terminate on next cycle")
-
-                return result
+            except Exception as e:
+                print(f"OpenShelf: Modal step error: {e}")
+                self._error_message = str(e)
+                self._current_step = 'ERROR'
+                return {'RUNNING_MODAL'}
 
             # Force UI update
             if time.time() - self._last_progress_update > 0.1:
@@ -202,8 +204,8 @@ class OPENSHELF_OT_modal_import_asset(Operator):
             return {'RUNNING_MODAL'}
 
         elif event.type == 'ESC':
-            print("OpenShelf: Modal import cancelled by user")
-            self._cleanup_and_finish(context, 'CANCELLED')
+            print("OpenShelf: Cancelled by user")
+            self._cleanup_and_finish(context, 'CANCELLED', "Import cancelled by user")
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
@@ -353,160 +355,77 @@ class OPENSHELF_OT_modal_import_asset(Operator):
         return {'RUNNING_MODAL'}
 
     def _step_download(self, context):
-        """Step 1: Download con progress callback MOLTO PIÙ AGGRESSIVO"""
+        """Step 1: Download con gestione callback migliorata"""
         scene = context.scene
 
         try:
-            # Parse model URLs (una sola volta)
-            if not hasattr(self, '_parsed_urls'):
-                self._parsed_urls = self._parse_model_urls()
-                if not self._parsed_urls:
-                    self._error_message = "No valid 3D model URLs found"
-                    self._current_step = 'ERROR'
-                    return {'RUNNING_MODAL'}
-
-            # Stato download iniziale
             if not hasattr(self, '_download_started'):
-                scene.openshelf_status_message = "Connecting to server..."
+                scene.openshelf_status_message = "Starting download..."
                 self._download_started = True
-                self._smooth_progress_target = 15
+                self._smooth_progress_target = 10
                 return {'RUNNING_MODAL'}
 
-            # FIX: Progress callback MOLTO PIÙ AGGRESSIVO
-            def progress_callback(downloaded, total):
-                current_time = time.time()
+            if not hasattr(self, '_download_manager_called'):
+                print(f"OpenShelf: Starting download for {self.asset_id}")
 
-                # AGGIORNA UI OGNI VOLTA che viene chiamato il callback
-                if total > 0:
-                    # Calcola percentuale per la barra di progresso (50% del totale riservato al download)
-                    download_percent = (downloaded / total) * 50
-                    self._smooth_progress_target = 15 + download_percent
+                # FIX CRITICO: Callback che comunica con il modale
+                def download_progress_callback(message):
+                    """Callback per comunicazione download -> modale"""
+                    print(f"OpenShelf: Download progress: {message}")
+                    scene.openshelf_status_message = message
 
-                    # AGGIORNA IMMEDIATAMENTE il progresso nella scene
-                    new_progress = int(self._smooth_progress_target)
-                    scene.openshelf_download_progress = new_progress
+                    # Aggiorna progress basato sul messaggio
+                    if "Downloading" in message and "%" in message:
+                        try:
+                            percent = int(''.join(filter(str.isdigit, message.split('%')[0])))
+                            self._smooth_progress_target = 10 + (percent * 0.5)  # 10-60%
+                        except:
+                            pass
+                    elif "Extracting" in message:
+                        self._smooth_progress_target = 65
+                    elif "Organizing" in message:
+                        self._smooth_progress_target = 75
+                        if "%" in message:  # Progress incrementale
+                            try:
+                                percent = int(''.join(filter(str.isdigit, message.split('%')[0])))
+                                self._smooth_progress_target = 75 + (percent * 0.15)  # 75-90%
+                            except:
+                                pass
+                    elif "organized" in message or "complete" in message.lower():
+                        # FIX CRITICO: Riconosce completamento
+                        self._smooth_progress_target = 90
+                        self._download_complete = True
+                        print("OpenShelf: Download phase marked as complete")
 
-                    # FIX: Visualizzazione AGGIORNATA OGNI VOLTA
-                    if total < 1024 * 1024:  # < 1MB: mostra in KB
-                        downloaded_kb = downloaded / 1024
-                        total_kb = total / 1024
+                # Chiamata download con callback
+                self._model_path = self._download_manager.download_asset(
+                    self._asset_data,
+                    progress_callback=download_progress_callback
+                )
 
-                        if total_kb < 100:  # < 100KB: 1 decimale
-                            scene.openshelf_status_message = f"📥 {downloaded_kb:.1f}/{total_kb:.1f} KB ({new_progress}%)"
-                        else:  # >= 100KB: numeri interi
-                            scene.openshelf_status_message = f"📥 {downloaded_kb:.0f}/{total_kb:.0f} KB ({new_progress}%)"
+                self._download_manager_called = True
+                return {'RUNNING_MODAL'}
 
-                    elif total < 10 * 1024 * 1024:  # 1-10MB: mostra MB con 1 decimale
-                        downloaded_mb = downloaded / (1024 * 1024)
-                        total_mb = total / (1024 * 1024)
-                        scene.openshelf_status_message = f"📥 {downloaded_mb:.1f}/{total_mb:.1f} MB ({new_progress}%)"
-
-                    else:  # > 10MB: mostra MB con numeri interi
-                        downloaded_mb = downloaded / (1024 * 1024)
-                        total_mb = total / (1024 * 1024)
-                        scene.openshelf_status_message = f"📥 {downloaded_mb:.0f}/{total_mb:.0f} MB ({new_progress}%)"
-
-                    # Aggiungi velocità se il download è in corso da più di 1 secondo
-                    elapsed = current_time - self._step_start_time
-                    if elapsed > 1:
-                        speed_bps = downloaded / elapsed
-                        if speed_bps > 1024 * 1024:
-                            speed_text = f" - {speed_bps / (1024 * 1024):.1f} MB/s"
-                        elif speed_bps > 1024:
-                            speed_text = f" - {speed_bps / 1024:.0f} KB/s"
-                        else:
-                            speed_text = f" - {speed_bps:.0f} B/s"
-
-                        scene.openshelf_status_message += speed_text
-
-                    # ETA per file grandi
-                    if total > 2 * 1024 * 1024 and elapsed > 2:  # File > 2MB dopo 2 secondi
-                        remaining_bytes = total - downloaded
-                        eta_seconds = remaining_bytes / (downloaded / elapsed)
-                        if eta_seconds < 60:
-                            eta_text = f" (ETA: {eta_seconds:.0f}s)"
-                        else:
-                            eta_minutes = eta_seconds / 60
-                            eta_text = f" (ETA: {eta_minutes:.1f}m)"
-
-                        scene.openshelf_status_message += eta_text
-
+            # FIX CRITICO: Controlla se download è completo
+            if hasattr(self, '_download_complete') and self._download_complete:
+                if self._model_path and os.path.exists(self._model_path):
+                    scene.openshelf_status_message = "Download completed"
+                    self._smooth_progress_target = 90
+                    self._current_step = 'IMPORT'  # Salta EXTRACT se già fatto
+                    self._step_start_time = time.time()
+                    print(f"OpenShelf: Download step completed, moving to import")
+                    return {'RUNNING_MODAL'}
                 else:
-                    # Progress senza dimensione nota - mostra solo scaricato
-                    if downloaded < 1024 * 1024:  # < 1MB
-                        downloaded_kb = downloaded / 1024
-                        scene.openshelf_status_message = f"📥 Downloading {downloaded_kb:.0f} KB..."
-                    else:
-                        downloaded_mb = downloaded / (1024 * 1024)
-                        scene.openshelf_status_message = f"📥 Downloading {downloaded_mb:.1f} MB..."
-
-                    # Progress senza totale noto - incrementa gradualmente
-                    self._smooth_progress_target = min(60, self._smooth_progress_target + 0.5)
-                    scene.openshelf_download_progress = int(self._smooth_progress_target)
-
-                # CRITICAL: Force UI update AGGRESSIVO ad ogni callback
-                self._force_ui_update(context)
-
-                # DEBUG: Stampa ogni 0.5 secondi circa
-                if not hasattr(self, '_last_callback_print'):
-                    self._last_callback_print = 0
-                if current_time - self._last_callback_print > 0.5:
-                    print(f"OpenShelf: Download progress - {scene.openshelf_download_progress}% - {scene.openshelf_status_message}")
-                    self._last_callback_print = current_time
-
-            # Esegui download con callback migliorato
-            if not hasattr(self, '_download_path'):
-                print(f"OpenShelf: Starting download from {len(self._parsed_urls)} URLs")
-                archive_path = None
-
-                for i, url in enumerate(self._parsed_urls):
-                    try:
-                        # Mostra quale URL stiamo provando
-                        url_display = url.split('/')[-1] if '/' in url else url
-                        if len(url_display) > 30:
-                            url_display = url_display[:27] + "..."
-
-                        scene.openshelf_status_message = f"📡 Connecting to {url_display}... ({i+1}/{len(self._parsed_urls)})"
-                        self._force_ui_update(context)
-
-                        archive_path = self._download_manager.download_file(
-                            url,
-                            use_cache=True,
-                            progress_callback=progress_callback
-                        )
-
-                        if archive_path and os.path.exists(archive_path):
-                            print(f"OpenShelf: Download successful: {archive_path}")
-
-                            # Mostra dimensione file scaricato
-                            file_size = os.path.getsize(archive_path)
-                            if file_size < 1024 * 1024:
-                                size_text = f"{file_size / 1024:.0f} KB"
-                            else:
-                                size_text = f"{file_size / (1024 * 1024):.1f} MB"
-
-                            scene.openshelf_status_message = f"✅ Downloaded {size_text} successfully"
-                            break
-
-                    except Exception as e:
-                        print(f"OpenShelf: Download failed for {url}: {e}")
-                        scene.openshelf_status_message = f"❌ Failed from source {i+1}, trying next..."
-                        continue
-
-                if not archive_path:
-                    self._error_message = "Failed to download asset from any URL"
+                    self._error_message = "Download completed but file not found"
                     self._current_step = 'ERROR'
                     return {'RUNNING_MODAL'}
 
-                self._download_path = archive_path
-
-            # Download completato
-            scene.openshelf_status_message = "✅ Download complete, preparing extraction..."
-            self._smooth_progress_target = 70
-            self._model_path = self._download_path
-            self._current_step = 'EXTRACT'
-            self._step_start_time = time.time()
-            print(f"OpenShelf: Download step completed")
+            # Se ancora in progress, continua
+            elapsed = time.time() - self._step_start_time
+            if elapsed > 120:  # Timeout download
+                self._error_message = "Download timeout"
+                self._current_step = 'ERROR'
+                return {'RUNNING_MODAL'}
 
         except Exception as e:
             print(f"OpenShelf: Download step error: {e}")
@@ -614,55 +533,67 @@ class OPENSHELF_OT_modal_import_asset(Operator):
         return {'RUNNING_MODAL'}
 
     def _step_import(self, context):
-        """Step 3: Import 3D model"""
+        """Step 3: Import 3D model - VERSIONE SEMPLIFICATA"""
         scene = context.scene
 
         try:
-            scene.openshelf_status_message = "Importing 3D model..."
-            self._smooth_progress_target = 95
+            if not hasattr(self, '_import_started'):
+                scene.openshelf_status_message = "Importing 3D model..."
+                self._smooth_progress_target = 95
+                self._import_started = True
+                return {'RUNNING_MODAL'}
 
             # Verifica file
-            if not os.path.exists(self._model_path):
+            if not self._model_path or not os.path.exists(self._model_path):
                 self._error_message = f"Model file not found: {self._model_path}"
                 self._current_step = 'ERROR'
                 return {'RUNNING_MODAL'}
 
             file_ext = os.path.splitext(self._model_path)[1].lower()
 
-            # Prepara impostazioni import
-            import_settings = {
-                'import_scale': self.import_scale,
-                'auto_center': self.auto_center,
-                'apply_materials': self.apply_materials,
-                'add_metadata': self.add_metadata
-            }
-
-            # Import
-            imported_obj = None
-            if file_ext == '.obj':
-                imported_obj = self._safe_obj_import(context, import_settings)
-            else:
+            if file_ext != '.obj':
                 self._error_message = f"Unsupported file format: {file_ext}"
                 self._current_step = 'ERROR'
                 return {'RUNNING_MODAL'}
 
-            if imported_obj:
-                if self.add_metadata:
-                    self._apply_cultural_metadata(imported_obj)
+            # Import OBJ - METODO SEMPLIFICATO
+            try:
+                print(f"OpenShelf: Importing OBJ file: {self._model_path}")
 
-                # Seleziona oggetto
-                try:
-                    context.view_layer.objects.active = imported_obj
-                    imported_obj.select_set(True)
-                except:
-                    pass
+                # Import con Blender standard
+                bpy.ops.wm.obj_import(filepath=self._model_path)
 
-                # Successo!
-                self._current_step = 'COMPLETE'
-                self._smooth_progress_target = 100
-                scene.openshelf_status_message = f"Successfully imported {imported_obj.name}"
-            else:
-                self._error_message = "Import returned no object"
+                # Verifica risultato
+                if bpy.context.selected_objects:
+                    imported_obj = bpy.context.selected_objects[0]
+
+                    # Applica metadati se richiesto
+                    if self.add_metadata and imported_obj:
+                        self._apply_cultural_metadata(imported_obj)
+
+                    # Scala e centra se richiesto
+                    if self.import_scale != 1.0:
+                        imported_obj.scale = (self.import_scale, self.import_scale, self.import_scale)
+
+                    if self.auto_center:
+                        # Centro l'oggetto
+                        bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
+                        imported_obj.location = (0, 0, 0)
+
+                    # Successo!
+                    scene.openshelf_status_message = "Import completed successfully!"
+                    self._smooth_progress_target = 100
+                    self._current_step = 'COMPLETE'
+                    self._step_start_time = time.time()
+                    print(f"OpenShelf: Import successful - {imported_obj.name}")
+
+                else:
+                    self._error_message = "Import completed but no objects created"
+                    self._current_step = 'ERROR'
+
+            except Exception as e:
+                print(f"OpenShelf: OBJ import error: {e}")
+                self._error_message = f"Import failed: {str(e)}"
                 self._current_step = 'ERROR'
 
         except Exception as e:
@@ -764,9 +695,24 @@ class OPENSHELF_OT_modal_import_asset(Operator):
         return []
 
     def _step_complete(self, context):
-        """Step finale - successo"""
-        self._cleanup_and_finish(context, 'FINISHED')
-        return {'FINISHED'}
+        """Step finale: Pulizia e chiusura"""
+        scene = context.scene
+
+        try:
+            # Aspetta un momento per mostrare il messaggio di successo
+            elapsed = time.time() - self._step_start_time
+            if elapsed < 1.0:  # Mostra per 1 secondo
+                return {'RUNNING_MODAL'}
+
+            # Termina con successo
+            print("OpenShelf: Modal import completed successfully")
+            self._cleanup_and_finish(context, 'FINISHED', "Import completed!")
+            return {'FINISHED'}
+
+        except Exception as e:
+            print(f"OpenShelf: Complete step error: {e}")
+            self._cleanup_and_finish(context, 'ERROR', str(e))
+            return {'CANCELLED'}
 
     def _step_error(self, context):
         """Step finale - errore"""
@@ -774,42 +720,42 @@ class OPENSHELF_OT_modal_import_asset(Operator):
         self._cleanup_and_finish(context, 'ERROR', error_msg)
         return {'CANCELLED'}
 
-    def _cleanup_and_finish(self, context, result_type, message=None):
-        """Cleanup finale"""
-        scene = context.scene
+    def _cleanup_and_finish(self, context, result_type='FINISHED', message=""):
+        """Pulizia finale e chiusura modale - FIX GARANTITO"""
+        try:
+            scene = context.scene
 
-        # Remove timer
-        if self._timer:
-            wm = context.window_manager
-            wm.event_timer_remove(self._timer)
-            self._timer = None
+            # Stoppa timer
+            if self._timer:
+                try:
+                    context.window_manager.event_timer_remove(self._timer)
+                    self._timer = None
+                except:
+                    pass
 
-        # Update UI state
-        scene.openshelf_is_downloading = False
-
-        if result_type == 'FINISHED':
-            scene.openshelf_download_progress = 100
-            if message:
-                scene.openshelf_status_message = message
-            self.report({'INFO'}, scene.openshelf_status_message)
-        elif result_type == 'TIMEOUT':
+            # Reset UI state
+            scene.openshelf_is_downloading = False
             scene.openshelf_download_progress = 0
-            scene.openshelf_status_message = "Import timed out"
-            self.report({'ERROR'}, "Import timed out")
-        elif result_type == 'CANCELLED':
-            scene.openshelf_download_progress = 0
-            scene.openshelf_status_message = "Import cancelled"
-            self.report({'INFO'}, "Import cancelled")
-        else:  # ERROR
-            scene.openshelf_download_progress = 0
-            scene.openshelf_status_message = message or "Import failed"
-            self.report({'ERROR'}, scene.openshelf_status_message)
 
-        # Force UI redraw
-        self._force_ui_update(context)
+            # Messaggio finale
+            if result_type == 'FINISHED':
+                scene.openshelf_status_message = message or "Import completed successfully!"
+                self.report({'INFO'}, message or "Asset imported successfully")
+            elif result_type == 'ERROR':
+                scene.openshelf_status_message = f"Error: {message}"
+                self.report({'ERROR'}, message or "Import failed")
+            else:
+                scene.openshelf_status_message = "Import cancelled"
+                self.report({'WARNING'}, "Import cancelled")
 
-        total_time = time.time() - self._start_time
-        print(f"OpenShelf: Modal import finished: {result_type} (time: {total_time:.1f}s)")
+            # Force UI update finale
+            self._force_ui_update(context)
+
+            print(f"OpenShelf: Modal cleanup completed - {result_type}")
+
+        except Exception as e:
+            print(f"OpenShelf: Cleanup error (non-critical): {e}")
+            # Continua comunque con la chiusura
 
 
 # Lista operatori da registrare

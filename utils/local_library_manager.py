@@ -40,6 +40,11 @@ class LocalLibraryManager:
         self.models_dir.mkdir(exist_ok=True)
         self.temp_dir.mkdir(exist_ok=True)
 
+    @property
+    def cache_dir(self):
+        """Proprietà di compatibilità - restituisce temp_dir"""
+        return self.temp_dir
+
     def get_asset_directory(self, asset_id: str) -> Path:
         """Ottiene la directory per un asset specifico"""
         # Sanitizza l'asset_id per il filesystem
@@ -98,48 +103,95 @@ class LocalLibraryManager:
             print(f"OpenShelf: Error saving metadata for {asset_id}: {e}")
             return False
 
-    def download_asset_to_library(self, asset_data, model_urls: List[str],
-                                 progress_callback: Optional[callable] = None) -> Optional[str]:
+    def download_asset(self, asset_data, progress_callback: Optional[callable] = None) -> Optional[str]:
         """
-        Scarica un asset nella libreria locale
+        Scarica un asset nella libreria locale - FIX COMPLETO
 
         Args:
-            asset_data: Dati dell'asset
-            model_urls: Lista di URL dei modelli
+            asset_data: Dati dell'asset (deve avere model_urls)
             progress_callback: Callback per il progresso
 
         Returns:
             Path al file del modello scaricato o None se errore
         """
         asset_id = asset_data.asset_id
-        asset_dir = self.get_asset_directory(asset_id)
 
-        # Se già scaricato, restituisci il path esistente
+        # Verifica se già presente
         if self.is_asset_downloaded(asset_id):
-            print(f"OpenShelf: Asset {asset_id} already in library")
-            return self._get_primary_model_file(asset_id)
+            primary_model = self._get_primary_model_file(asset_id)
+            if primary_model and os.path.exists(primary_model):
+                if progress_callback:
+                    progress_callback("Asset already available!")
+                return primary_model
 
-        print(f"OpenShelf: Downloading asset {asset_id} to library...")
+        print(f"OpenShelf: Downloading asset {asset_id} - {asset_data.name}")
 
-        # Crea directory temporanea per questo download
-        temp_download_dir = self.temp_dir / f"download_{uuid.uuid4().hex[:8]}"
-        temp_download_dir.mkdir(parents=True, exist_ok=True)
+        # Estrai URL dai dati dell'asset
+        try:
+            if hasattr(asset_data, 'model_urls'):
+                model_urls_raw = asset_data.model_urls
+            else:
+                raise Exception("No model_urls found in asset_data")
+
+            # Parsing degli URL
+            if isinstance(model_urls_raw, str):
+                try:
+                    import json
+                    model_urls = json.loads(model_urls_raw) if model_urls_raw else []
+                    if isinstance(model_urls, str):
+                        model_urls = [model_urls]
+                except:
+                    model_urls = [model_urls_raw] if model_urls_raw else []
+            elif isinstance(model_urls_raw, list):
+                model_urls = model_urls_raw
+            else:
+                model_urls = []
+
+            model_urls = [url.strip() for url in model_urls if url and url.strip()]
+
+            if not model_urls:
+                raise Exception("No valid model URLs found")
+
+        except Exception as e:
+            print(f"OpenShelf: Error parsing model URLs: {e}")
+            if progress_callback:
+                progress_callback(f"Error: {str(e)}")
+            return None
+
+        # FIX CRITICO: Inizializza temp_download_dir all'inizio
+        temp_download_dir = None
 
         try:
-            # Prova a scaricare da ogni URL
+            # Setup directory
+            temp_download_dir = self.temp_dir / f"download_{uuid.uuid4().hex[:8]}"
+            temp_download_dir.mkdir(parents=True, exist_ok=True)
+            asset_dir = self.get_asset_directory(asset_id)
+
+            # Download
+            if progress_callback:
+                progress_callback("Starting download...")
+
+            def download_progress(message):
+                if progress_callback:
+                    progress_callback(message)
+
             downloaded_archive = None
             for i, url in enumerate(model_urls):
                 if progress_callback:
                     progress_callback(f"Trying download {i+1}/{len(model_urls)}")
 
-                downloaded_archive = self._download_file(url, temp_download_dir, progress_callback)
+                downloaded_archive = self._download_file(
+                    url,
+                    temp_download_dir,
+                    progress_callback=download_progress
+                )
                 if downloaded_archive:
                     break
 
             if not downloaded_archive:
                 raise Exception("Failed to download from any URL")
 
-            # Estrai l'archivio nella directory temporanea
+            # Extract
             if progress_callback:
                 progress_callback("Extracting archive...")
 
@@ -154,11 +206,12 @@ class LocalLibraryManager:
             # Crea directory asset finale
             asset_dir.mkdir(parents=True, exist_ok=True)
 
-            # Copia tutti i file nella directory asset
-            if progress_callback:
-                progress_callback("Organizing files...")
+            # FIX CRITICO: Passa il callback alla copia
+            def copy_progress(message):
+                if progress_callback:
+                    progress_callback(message)
 
-            self._copy_asset_files(extract_dir, asset_dir)
+            self._copy_asset_files(extract_dir, asset_dir, progress_callback=copy_progress)
 
             # Salva metadati
             metadata = {
@@ -181,6 +234,7 @@ class LocalLibraryManager:
             # Trova e restituisci il file modello principale
             primary_model = self._get_primary_model_file(asset_id)
 
+            # FIX CRITICO: Comunica sempre il completamento
             if progress_callback:
                 progress_callback("Download complete!")
 
@@ -189,11 +243,20 @@ class LocalLibraryManager:
 
         except Exception as e:
             print(f"OpenShelf: Error downloading asset {asset_id}: {e}")
+            if progress_callback:
+                progress_callback(f"Error: {str(e)}")
             return None
         finally:
-            # Pulizia directory temporanea
-            if temp_download_dir.exists():
-                shutil.rmtree(temp_download_dir, ignore_errors=True)
+            # FIX CRITICO: Controlla se temp_download_dir è definito prima di usarlo
+            if temp_download_dir is not None and temp_download_dir.exists():
+                try:
+                    import shutil
+                    shutil.rmtree(temp_download_dir, ignore_errors=True)
+                    print(f"OpenShelf: Cleaned up temp directory: {temp_download_dir}")
+                except Exception as e:
+                    print(f"OpenShelf: Error cleaning temp directory: {e}")
+
+
 
     def _get_primary_model_file(self, asset_id: str) -> Optional[str]:
         """Trova il file modello principale per un asset"""
@@ -250,133 +313,68 @@ class LocalLibraryManager:
 
         return found_files
 
-    def _copy_asset_files(self, source_dir: Path, dest_dir: Path):
-        """Copia tutti i file dell'asset nella directory finale - CON DEBUG DETTAGLIATO"""
+    def _copy_asset_files(self, source_dir: Path, dest_dir: Path, progress_callback=None):
+        """Copia tutti i file dell'asset nella directory finale - FIX MODAL COMMUNICATION"""
         import time
         start_time = time.time()
 
         print(f"OpenShelf DEBUG: === STARTING FILE COPY ===")
         print(f"OpenShelf DEBUG: Source dir: {source_dir}")
         print(f"OpenShelf DEBUG: Dest dir: {dest_dir}")
-        print(f"OpenShelf DEBUG: Source exists: {source_dir.exists()}")
-        print(f"OpenShelf DEBUG: Dest exists: {dest_dir.exists()}")
 
         try:
-            # Trova tutti i file prima di iniziare
-            print(f"OpenShelf DEBUG: Scanning source directory...")
+            # Trova tutti i file da copiare
             all_items = list(source_dir.rglob("*"))
-            print(f"OpenShelf DEBUG: Found {len(all_items)} total items")
-
-            # Filtra solo i file
             files_to_copy = [item for item in all_items if item.is_file()]
-            print(f"OpenShelf DEBUG: Found {len(files_to_copy)} files to copy")
 
             if not files_to_copy:
                 print(f"OpenShelf DEBUG: ⚠️ No files found to copy!")
+                if progress_callback:
+                    progress_callback("No files to copy - completing...")
                 return
 
-            # Lista tutti i file che verranno copiati
-            print(f"OpenShelf DEBUG: Files to copy:")
-            for i, file_item in enumerate(files_to_copy):
-                file_size = file_item.stat().st_size if file_item.exists() else 0
-                size_mb = file_size / (1024 * 1024)
-                print(f"OpenShelf DEBUG:   {i+1:2d}. {file_item.name} ({size_mb:.2f} MB)")
+            print(f"OpenShelf DEBUG: Found {len(files_to_copy)} files to copy")
 
-            print(f"OpenShelf DEBUG: === STARTING COPY PROCESS ===")
+            # FIX CRITICO: Comunica inizio copia con numero file
+            if progress_callback:
+                progress_callback(f"Organizing {len(files_to_copy)} files...")
 
-            copied_files = 0
-            total_size_copied = 0
-
-            for i, item in enumerate(files_to_copy):
-                copy_start = time.time()
-
+            # Copia file con progress incrementale
+            for i, source_file in enumerate(files_to_copy):
                 try:
-                    print(f"OpenShelf DEBUG: [{i+1}/{len(files_to_copy)}] Copying: {item.name}")
-
-                    # Mantieni struttura relativa
-                    relative_path = item.relative_to(source_dir)
+                    # Calcola path relativo
+                    relative_path = source_file.relative_to(source_dir)
                     dest_file = dest_dir / relative_path
 
-                    print(f"OpenShelf DEBUG:   Relative path: {relative_path}")
-                    print(f"OpenShelf DEBUG:   Destination: {dest_file}")
-
-                    # Crea directory padre se necessario
-                    print(f"OpenShelf DEBUG:   Creating parent dirs...")
+                    # Crea directory se necessaria
                     dest_file.parent.mkdir(parents=True, exist_ok=True)
-                    print(f"OpenShelf DEBUG:   ✓ Parent dirs created")
 
-                    # Ottieni info file sorgente
-                    file_size = item.stat().st_size
-                    size_mb = file_size / (1024 * 1024)
-                    print(f"OpenShelf DEBUG:   File size: {size_mb:.2f} MB")
+                    # Copia file
+                    import shutil
+                    shutil.copy2(source_file, dest_file)
 
-                    # Copia il file
-                    print(f"OpenShelf DEBUG:   Starting shutil.copy2...")
-                    shutil.copy2(item, dest_file)
+                    # FIX CRITICO: Progress callback incrementale
+                    if progress_callback and len(files_to_copy) > 5:  # Solo se ci sono molti file
+                        percent = int((i + 1) / len(files_to_copy) * 100)
+                        progress_callback(f"Organizing files... {percent}%")
 
-                    copy_time = time.time() - copy_start
-                    print(f"OpenShelf DEBUG:   ✅ Copied in {copy_time:.2f}s")
+                    print(f"OpenShelf DEBUG: Copied {i+1}/{len(files_to_copy)}: {relative_path}")
 
-                    # Verifica copia
-                    if dest_file.exists():
-                        dest_size = dest_file.stat().st_size
-                        if dest_size == file_size:
-                            print(f"OpenShelf DEBUG:   ✅ File size verified: {dest_size} bytes")
-                        else:
-                            print(f"OpenShelf DEBUG:   ⚠️ Size mismatch! Source: {file_size}, Dest: {dest_size}")
-                    else:
-                        print(f"OpenShelf DEBUG:   ❌ Destination file not found after copy!")
-
-                    copied_files += 1
-                    total_size_copied += file_size
-
-                    # Piccola pausa ogni 5 file per non bloccare completamente l'UI
-                    if i > 0 and i % 5 == 0:
-                        print(f"OpenShelf DEBUG:   💤 Small UI break after {i+1} files...")
-                        time.sleep(0.02)  # 20ms pause
-
-                    # Progress report ogni 10 file
-                    if i > 0 and i % 10 == 0:
-                        elapsed = time.time() - start_time
-                        avg_time_per_file = elapsed / (i + 1)
-                        remaining_files = len(files_to_copy) - (i + 1)
-                        estimated_remaining = avg_time_per_file * remaining_files
-
-                        print(f"OpenShelf DEBUG: === PROGRESS REPORT ===")
-                        print(f"OpenShelf DEBUG: Copied: {i+1}/{len(files_to_copy)} files")
-                        print(f"OpenShelf DEBUG: Total size copied: {total_size_copied/(1024*1024):.2f} MB")
-                        print(f"OpenShelf DEBUG: Elapsed: {elapsed:.1f}s, Est. remaining: {estimated_remaining:.1f}s")
-                        print(f"OpenShelf DEBUG: ===========================")
-
-                except Exception as file_error:
-                    print(f"OpenShelf DEBUG: ❌ ERROR copying {item.name}: {file_error}")
-                    print(f"OpenShelf DEBUG: Error type: {type(file_error).__name__}")
-                    import traceback
-                    print(f"OpenShelf DEBUG: Traceback: {traceback.format_exc()}")
+                except Exception as e:
+                    print(f"OpenShelf DEBUG: Error copying {source_file}: {e}")
                     continue
 
-            # Report finale
-            total_time = time.time() - start_time
-            total_mb = total_size_copied / (1024 * 1024)
+            # FIX CRITICO: Comunica sempre il completamento
+            copy_time = time.time() - start_time
+            print(f"OpenShelf DEBUG: === FILE COPY COMPLETED in {copy_time:.2f}s ===")
 
-            print(f"OpenShelf DEBUG: === COPY COMPLETED ===")
-            print(f"OpenShelf DEBUG: Total files copied: {copied_files}/{len(files_to_copy)}")
-            print(f"OpenShelf DEBUG: Total size: {total_mb:.2f} MB")
-            print(f"OpenShelf DEBUG: Total time: {total_time:.2f}s")
-            print(f"OpenShelf DEBUG: Average speed: {total_mb/total_time if total_time > 0 else 0:.2f} MB/s")
-            print(f"OpenShelf DEBUG: ===========================")
-
-            if copied_files < len(files_to_copy):
-                failed_count = len(files_to_copy) - copied_files
-                print(f"OpenShelf DEBUG: ⚠️ {failed_count} files failed to copy")
-            else:
-                print(f"OpenShelf DEBUG: ✅ All files copied successfully!")
+            if progress_callback:
+                progress_callback("Files organized - ready for import!")
 
         except Exception as e:
-            print(f"OpenShelf DEBUG: ❌ FATAL ERROR in _copy_asset_files: {e}")
-            print(f"OpenShelf DEBUG: Error type: {type(e).__name__}")
-            import traceback
-            print(f"OpenShelf DEBUG: Full traceback: {traceback.format_exc()}")
+            print(f"OpenShelf DEBUG: FATAL COPY ERROR: {e}")
+            if progress_callback:
+                progress_callback(f"Copy error: {str(e)}")
             raise
 
     def get_library_stats(self) -> Dict[str, Any]:
