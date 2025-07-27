@@ -251,17 +251,133 @@ class LocalLibraryManager:
         return found_files
 
     def _copy_asset_files(self, source_dir: Path, dest_dir: Path):
-        """Copia tutti i file dell'asset nella directory finale"""
-        for item in source_dir.rglob("*"):
-            if item.is_file():
-                # Mantieni struttura relativa
-                relative_path = item.relative_to(source_dir)
-                dest_file = dest_dir / relative_path
+        """Copia tutti i file dell'asset nella directory finale - CON DEBUG DETTAGLIATO"""
+        import time
+        start_time = time.time()
 
-                # Crea directory padre se necessario
-                dest_file.parent.mkdir(parents=True, exist_ok=True)
+        print(f"OpenShelf DEBUG: === STARTING FILE COPY ===")
+        print(f"OpenShelf DEBUG: Source dir: {source_dir}")
+        print(f"OpenShelf DEBUG: Dest dir: {dest_dir}")
+        print(f"OpenShelf DEBUG: Source exists: {source_dir.exists()}")
+        print(f"OpenShelf DEBUG: Dest exists: {dest_dir.exists()}")
 
-                shutil.copy2(item, dest_file)
+        try:
+            # Trova tutti i file prima di iniziare
+            print(f"OpenShelf DEBUG: Scanning source directory...")
+            all_items = list(source_dir.rglob("*"))
+            print(f"OpenShelf DEBUG: Found {len(all_items)} total items")
+
+            # Filtra solo i file
+            files_to_copy = [item for item in all_items if item.is_file()]
+            print(f"OpenShelf DEBUG: Found {len(files_to_copy)} files to copy")
+
+            if not files_to_copy:
+                print(f"OpenShelf DEBUG: ⚠️ No files found to copy!")
+                return
+
+            # Lista tutti i file che verranno copiati
+            print(f"OpenShelf DEBUG: Files to copy:")
+            for i, file_item in enumerate(files_to_copy):
+                file_size = file_item.stat().st_size if file_item.exists() else 0
+                size_mb = file_size / (1024 * 1024)
+                print(f"OpenShelf DEBUG:   {i+1:2d}. {file_item.name} ({size_mb:.2f} MB)")
+
+            print(f"OpenShelf DEBUG: === STARTING COPY PROCESS ===")
+
+            copied_files = 0
+            total_size_copied = 0
+
+            for i, item in enumerate(files_to_copy):
+                copy_start = time.time()
+
+                try:
+                    print(f"OpenShelf DEBUG: [{i+1}/{len(files_to_copy)}] Copying: {item.name}")
+
+                    # Mantieni struttura relativa
+                    relative_path = item.relative_to(source_dir)
+                    dest_file = dest_dir / relative_path
+
+                    print(f"OpenShelf DEBUG:   Relative path: {relative_path}")
+                    print(f"OpenShelf DEBUG:   Destination: {dest_file}")
+
+                    # Crea directory padre se necessario
+                    print(f"OpenShelf DEBUG:   Creating parent dirs...")
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
+                    print(f"OpenShelf DEBUG:   ✓ Parent dirs created")
+
+                    # Ottieni info file sorgente
+                    file_size = item.stat().st_size
+                    size_mb = file_size / (1024 * 1024)
+                    print(f"OpenShelf DEBUG:   File size: {size_mb:.2f} MB")
+
+                    # Copia il file
+                    print(f"OpenShelf DEBUG:   Starting shutil.copy2...")
+                    shutil.copy2(item, dest_file)
+
+                    copy_time = time.time() - copy_start
+                    print(f"OpenShelf DEBUG:   ✅ Copied in {copy_time:.2f}s")
+
+                    # Verifica copia
+                    if dest_file.exists():
+                        dest_size = dest_file.stat().st_size
+                        if dest_size == file_size:
+                            print(f"OpenShelf DEBUG:   ✅ File size verified: {dest_size} bytes")
+                        else:
+                            print(f"OpenShelf DEBUG:   ⚠️ Size mismatch! Source: {file_size}, Dest: {dest_size}")
+                    else:
+                        print(f"OpenShelf DEBUG:   ❌ Destination file not found after copy!")
+
+                    copied_files += 1
+                    total_size_copied += file_size
+
+                    # Piccola pausa ogni 5 file per non bloccare completamente l'UI
+                    if i > 0 and i % 5 == 0:
+                        print(f"OpenShelf DEBUG:   💤 Small UI break after {i+1} files...")
+                        time.sleep(0.02)  # 20ms pause
+
+                    # Progress report ogni 10 file
+                    if i > 0 and i % 10 == 0:
+                        elapsed = time.time() - start_time
+                        avg_time_per_file = elapsed / (i + 1)
+                        remaining_files = len(files_to_copy) - (i + 1)
+                        estimated_remaining = avg_time_per_file * remaining_files
+
+                        print(f"OpenShelf DEBUG: === PROGRESS REPORT ===")
+                        print(f"OpenShelf DEBUG: Copied: {i+1}/{len(files_to_copy)} files")
+                        print(f"OpenShelf DEBUG: Total size copied: {total_size_copied/(1024*1024):.2f} MB")
+                        print(f"OpenShelf DEBUG: Elapsed: {elapsed:.1f}s, Est. remaining: {estimated_remaining:.1f}s")
+                        print(f"OpenShelf DEBUG: ===========================")
+
+                except Exception as file_error:
+                    print(f"OpenShelf DEBUG: ❌ ERROR copying {item.name}: {file_error}")
+                    print(f"OpenShelf DEBUG: Error type: {type(file_error).__name__}")
+                    import traceback
+                    print(f"OpenShelf DEBUG: Traceback: {traceback.format_exc()}")
+                    continue
+
+            # Report finale
+            total_time = time.time() - start_time
+            total_mb = total_size_copied / (1024 * 1024)
+
+            print(f"OpenShelf DEBUG: === COPY COMPLETED ===")
+            print(f"OpenShelf DEBUG: Total files copied: {copied_files}/{len(files_to_copy)}")
+            print(f"OpenShelf DEBUG: Total size: {total_mb:.2f} MB")
+            print(f"OpenShelf DEBUG: Total time: {total_time:.2f}s")
+            print(f"OpenShelf DEBUG: Average speed: {total_mb/total_time if total_time > 0 else 0:.2f} MB/s")
+            print(f"OpenShelf DEBUG: ===========================")
+
+            if copied_files < len(files_to_copy):
+                failed_count = len(files_to_copy) - copied_files
+                print(f"OpenShelf DEBUG: ⚠️ {failed_count} files failed to copy")
+            else:
+                print(f"OpenShelf DEBUG: ✅ All files copied successfully!")
+
+        except Exception as e:
+            print(f"OpenShelf DEBUG: ❌ FATAL ERROR in _copy_asset_files: {e}")
+            print(f"OpenShelf DEBUG: Error type: {type(e).__name__}")
+            import traceback
+            print(f"OpenShelf DEBUG: Full traceback: {traceback.format_exc()}")
+            raise
 
     def get_library_stats(self) -> Dict[str, Any]:
         """Ottiene statistiche della libreria locale"""

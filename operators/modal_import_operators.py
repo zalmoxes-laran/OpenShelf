@@ -154,27 +154,59 @@ class OPENSHELF_OT_modal_import_asset(Operator):
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        """Gestisce il loop principale del modal operator - CON DEBUG PROGRESS"""
-        scene = context.scene
+        """Event handler per modal operator - FIX VELOCE"""
 
-        # Check timeout globale
-        elapsed_time = time.time() - self._start_time
-        if elapsed_time > self._timeout:
-            print(f"OpenShelf: Global timeout after {elapsed_time:.1f}s")
-            self._cleanup_and_finish(context, 'TIMEOUT')
+        # FIX: Controlla se siamo in stato COMPLETE o ERROR e termina immediatamente
+        if self._current_step == 'COMPLETE':
+            print("OpenShelf: COMPLETE state detected - forcing termination")
+            self._cleanup_and_finish(context, 'FINISHED', "Import completed successfully!")
+            return {'FINISHED'}
+
+        if self._current_step == 'ERROR':
+            print("OpenShelf: ERROR state detected - forcing termination")
+            error_msg = self._error_message or "Import failed"
+            self._cleanup_and_finish(context, 'ERROR', error_msg)
             return {'CANCELLED'}
 
-        # Gestione eventi
         if event.type == 'TIMER':
+            # Check timeout
+            if time.time() - self._start_time > self._timeout:
+                print("OpenShelf: Modal import timeout")
+                self._cleanup_and_finish(context, 'TIMEOUT')
+                return {'CANCELLED'}
 
-            # FIX: Aggiorna progress fluido ad ogni timer
-            self._update_smooth_progress(context)
-            return self._handle_timer_step(context)
-        elif event.type in {'ESC'}:
+            # Update smooth progress
+            self._update_smooth_progress()
+
+            # Process current step
+            if self._current_step == 'INIT':
+                return self._step_init(context)
+            elif self._current_step == 'DOWNLOAD':
+                return self._step_download(context)
+            elif self._current_step == 'EXTRACT':
+                return self._step_extract(context)
+            elif self._current_step == 'IMPORT':
+                result = self._step_import(context)
+
+                # FIX: Dopo l'import, se siamo in COMPLETE, termina al prossimo ciclo
+                if self._current_step == 'COMPLETE':
+                    print("OpenShelf: Import step completed, will terminate on next cycle")
+
+                return result
+
+            # Force UI update
+            if time.time() - self._last_progress_update > 0.1:
+                self._force_ui_update(context)
+                self._last_progress_update = time.time()
+
+            return {'RUNNING_MODAL'}
+
+        elif event.type == 'ESC':
+            print("OpenShelf: Modal import cancelled by user")
             self._cleanup_and_finish(context, 'CANCELLED')
             return {'CANCELLED'}
 
-        return {'PASS_THROUGH'}
+        return {'RUNNING_MODAL'}
 
     def _debug_progress_panel_visibility(self, context):
         """Debug: verifica se il pannello progress è visibile"""
