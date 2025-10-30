@@ -44,7 +44,7 @@ class OBJLoader:
             import_params = {
                 'filepath': filepath,
                 # ❌ RIMOSSO: 'use_edges' - non esiste più in Blender 4.2+
-                'use_smooth_groups': kwargs.get('use_smooth_groups', True),
+                #'use_smooth_groups': kwargs.get('use_smooth_groups', True),
                 'use_split_objects': kwargs.get('use_split_objects', True),
                 'use_split_groups': kwargs.get('use_split_groups', False),
                 # Parametri assi corretti per Blender 4.2+
@@ -292,7 +292,7 @@ class OBJLoader:
         # Impostazioni per repository specifici
         repository_settings = {
             "Ercolano": {
-                "use_smooth_groups": True,
+                #"use_smooth_groups": True,
                 "use_edges": True,
                 "use_image_search": True,
                 "auto_center": True,
@@ -304,7 +304,7 @@ class OBJLoader:
             },
             # Futuro: aggiungere impostazioni per altri repository
             "default": {
-                "use_smooth_groups": True,
+                #"use_smooth_groups": True,
                 "use_edges": True,
                 "use_image_search": True,
                 "auto_center": True,
